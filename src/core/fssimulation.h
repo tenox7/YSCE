@@ -283,6 +283,8 @@ protected:
 
 	YSBOOL fieldLoaded;
 	FsField field;
+	YSBOOL liveMapVisible;
+	double liveMapRange;
 
 	YsHashTable <FsAirplane *> *airplaneSearch;
 	YsHashTable <FsGround *> *groundSearch;
@@ -927,6 +929,7 @@ protected:
 	void SimDrawAircraftInterior(const ActualViewMode &actualViewMode,const class FsProjection &proj,const FsAirplane *air,unsigned int instDrawSwitch,const FsCockpitIndicationSet &cockpitIndicationSet) const;
 	void SimDrawGroundInterior(const ActualViewMode &actualViewMode,const class FsProjection &proj,const FsGround *gnd,const class FsCockpitIndicationSet &cockpitIndicationSet) const;
 	void SimDrawRadar(const ActualViewMode &actualViewMode) const;
+	void SimDrawLiveMap(void) const;
 	void SimDrawInstPanel3d(const YsVec3 &fakeViewPos,const YsVec3 &localViewPos,const class FsCockpitIndicationSet &cockpitIndicationSet) const;
 	void SimDrawHud3d(const YsVec3 &instViewPos,const YsAtt3 &instViewAtt,const FsCockpitIndicationSet &ias) const;
 	void SimDraw2dVor1(const class FsCockpitIndicationSet &cockpitIndicationSet) const;
