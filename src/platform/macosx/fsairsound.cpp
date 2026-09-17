@@ -5,6 +5,7 @@
 
 
 #include <dlfcn.h>
+#include <limits.h>
 
 
 #include <ysclass.h>
@@ -36,6 +37,13 @@ void (*FsSoundDllKeepPlaying)(void)=NULL;
 
 static void *FsSndDllPtr=NULL;
 
+// Hardened runtime rejects relative dlopen paths, resolve to absolute first.
+static void *FsDlOpen(const char fn[])
+{
+	char absFn[PATH_MAX];
+	return dlopen(NULL!=realpath(fn,absFn) ? absFn : fn,RTLD_LAZY);
+}
+
 extern "C"
 {
 void (*FsVoiceDllInitialize)(void)=NULL;
@@ -59,7 +67,7 @@ void FsSoundInitialize(void)
 		YsPrintf("Loading Sound Plug-In. (%s)\n",utf8.Txt());
 
 
-		FsSndDllPtr=dlopen(utf8,RTLD_LAZY);
+		FsSndDllPtr=FsDlOpen(utf8.Txt());
 		if(NULL!=FsSndDllPtr)
 		{
 			YsPrintf("Sound Plug-In Loaded.\n");
@@ -99,7 +107,7 @@ void FsSoundInitialize(void)
 		YsPrintf("Loading Voice Plug-In. (%s)\n",cVoiceDllFn.Txt());
 
 
-		FsVoiceDllPtr=dlopen(cVoiceDllFn.Txt(),RTLD_LAZY);
+		FsVoiceDllPtr=FsDlOpen(cVoiceDllFn.Txt());
 		if(NULL!=FsVoiceDllPtr)
 		{
 			YsPrintf("Voice Plug-In Loaded.\n");
