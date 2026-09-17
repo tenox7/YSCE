@@ -1747,7 +1747,7 @@ void FsControlAssignment::SetDefaultKeyAssign(void)
 	AddKeyAssignment(FSKEY_F6,      FSBTF_ILSVIEW);
 	AddKeyAssignment(FSKEY_F7,      FSBTF_OUTSIDEPLAYERVIEW2);
 	AddKeyAssignment(FSKEY_F8,      FSBTF_OUTSIDEPLAYERVIEW3);
-	AddKeyAssignment(FSKEY_F9,      FSBTF_CONTROLTOWERVIEW); 
+	AddKeyAssignment(FSKEY_F9,      FSBTF_CONTROLTOWERVIEW);
 	AddKeyAssignment(FSKEY_F11,     FSBTF_SWITCHVIEWTARGET); 
 	AddKeyAssignment(FSKEY_U,       FSBTF_LOOKFORWARD);
 	AddKeyAssignment(FSKEY_K,       FSBTF_LOOKRIGHT);
@@ -2607,7 +2607,7 @@ void FsCenterJoystick::RunOneStep(void)
 		}
 
 		ctl->ReadControl(*ctlAssign,pJoy,joy);
-		Sleep(1); //Without this forced sleep, joystick preview renders as fast as it can and burns CPU needlessly
+		FsSleep(1); //Without this forced sleep, joystick preview renders as fast as it can and burns CPU needlessly
 	}
 	else if(WAITING_FOR_RELEASE==state)
 	{

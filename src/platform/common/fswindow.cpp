@@ -8,7 +8,10 @@
 #include "fsoption.h"
 #include "platform/common/fswindow.h"
 
+#ifdef _WIN32
 #include "wtypes.h"
+#endif
+#include <climits>
 #include <iostream>
 
 #include <ysport.h>
@@ -299,11 +302,16 @@ int FsGetActiveSplitWindow(void)
 void FsLoadWindowSize(int &x0,int &y0,int &wid,int &hei,const wchar_t fn[])
 {
 	int scrwid, scrhei;
+#ifdef _WIN32
 	const HWND desktop = GetDesktopWindow();
 	RECT screenres;
 	GetWindowRect(desktop, &screenres);
 	scrwid = screenres.right;
 	scrhei = screenres.bottom;
+#else
+	scrwid = 1<<20;
+	scrhei = 1<<20;
+#endif
 
 	FILE *fp=YsFileIO::Fopen(fn,"r");
 	if(fp!=NULL)

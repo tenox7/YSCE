@@ -16,7 +16,7 @@ void FsAircraftCarrierProperty::EndDrawArrestingWire(void)
 	YsGLSL3DRenderer *renderer=YsGLSLSharedFlat3DRenderer();
 	YsGLSLUse3DRenderer(renderer);
 
-	GLfloat color[4]={r,g,b,1.0f};
+	GLfloat color[4]={(GLfloat)r,(GLfloat)g,(GLfloat)b,1.0f};
 	YsGLSLSet3DRendererUniformColorfv(renderer,color);
 
 	YsGLSLDrawPrimitiveVtxfv(renderer,GL_LINES,vtxBuf.nVtx,vtxBuf.vtxArray);

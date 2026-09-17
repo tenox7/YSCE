@@ -3,8 +3,10 @@ project(YSFLIGHT)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(WIN32)
 set(ZLIB_LIBRARY "C:\\Users\\Violet\\vcpkg\\installed\\x64-windows\\lib\\zlib.lib")
 set(ZLIB_INCLUDE_DIR "C:\\Users\\Violet\\vcpkg\\installed\\x64-windows\\include")
+endif()
 
 if (MSVC)
   add_compile_definitions(

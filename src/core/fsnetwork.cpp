@@ -1799,7 +1799,7 @@ YSRESULT FsSocketServer::BroadcastGetDamage
 
 	if (isAir == 1 && victimHealth > victimStrength) //Force aircraft with health between STRENGTH and 2^15 to reset STRENGTH
 	{
-		printf("ILLEGAL HEALTH: User %i (%s) has health %i of %i\n", victim->SearchKey(), victim->name, victimHealth, victimStrength);
+		printf("ILLEGAL HEALTH: User %i (%s) has health %i of %i\n", victim->SearchKey(), victim->name.Txt(), victimHealth, victimStrength);
 		char strengthOverride[15];
 		if (victimStrength - power >= 0)
 		{
