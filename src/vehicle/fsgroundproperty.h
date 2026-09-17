@@ -35,6 +35,7 @@ public:
 	YSRESULT UnloadAirplane(FsAirplane *air); // When unload, add velocity
 	YSRESULT LoadGround(FsGround *gnd);
 	YSRESULT UnloadGround(FsGround *gnd);
+	YSRESULT UnloadAllCargo(void);
 
 	YSBOOL IsAirplaneLoaded(const FsAirplane *air) const;
 	YSBOOL IsGroundLoaded(const FsGround *gnd) const;
@@ -60,7 +61,7 @@ public:
 
 	YSRESULT DrawBridge(const YsMatrix4x4 &viewMat) const;
 	static void BeginDrawArrestingWire(void);
-	YSRESULT DrawArrestingWire(void) const;
+	YSRESULT DrawArrestingWire(double colorScale) const;
 	static void EndDrawArrestingWire(void);
 
 

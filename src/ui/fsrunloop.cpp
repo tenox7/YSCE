@@ -33,6 +33,7 @@
 #include "fssimextension_intercept.h"
 #include "fssimextension_closeairsupport.h"
 #include "fssimextension_groundtoair.h"
+#include <fsstdout.h>
 
 
 extern FsScreenMessage fsConsole;
@@ -645,6 +646,7 @@ void FsRunLoop::StartReplayRecord(YSBOOL editMode)
 {
 	replayInfo.Initialize(world->GetSimulation()->GetFirstRecordTime(),editMode);
 	simState=FsSimulation::FSSIMSTATE_INITIALIZE;
+	world->SetReplayResumed(YSFALSE);
 	ChangeRunMode(YSRUNMODE_REPLAYRECORD);
 }
 
@@ -1359,6 +1361,14 @@ void FsRunLoop::ChangeRunMode(RUNMODE runMode)
 	{
 		FsPollDevice();
 	}
+	if (runMode == YSRUNMODE_FLY_CLIENTMODE)
+	{
+		world->SetIsNetClient(YSTRUE);
+	}
+	else if (runMode != YSRUNMODE_NONE && runMode != YSRUNMODE_MENU && runMode != YSRUNMODE_SHOWLANDINGPRACTICEINFO)
+	{
+		world->SetIsNetClient(YSFALSE);
+	}
 }
 
 void FsRunLoop::ChangeSimulationState(FsSimulation::FSSIMULATIONSTATE simState)
@@ -1389,8 +1399,17 @@ void FsRunLoop::PopRunMode(void)
 
 void FsRunLoop::TakeOff(RUNMODE nextRunMode)
 {
-	ChangeSimulationState(FsSimulation::FSSIMSTATE_CENTERJOYSTICK);
-	ChangeRunMode(nextRunMode);
+	if (world->CheckJoystickAssignmentAndFixIfNecessary() != YSOK)
+	{
+		fsStderr.Printf("Unable to assign joystick\n");
+		ChangeSimulationState(FsSimulation::FSSIMSTATE_OVER);
+		ChangeRunMode(YSRUNMODE_MENU);
+	}
+	else
+	{
+		ChangeSimulationState(FsSimulation::FSSIMSTATE_CENTERJOYSTICK);
+		ChangeRunMode(nextRunMode);
+	}
 }
 
 YSRESULT FsRunLoop::SetUpEnduranceMode(
@@ -1878,10 +1897,15 @@ YSBOOL FsRunLoop::RunOneStep(void)
 			break;
 		case YSRUNMODE_FLY_REGULAR:
 		case YSRUNMODE_FLY_DEMOMODE:
-		case YSRUNMODE_REPLAYRECORD:
 		case YSRUNMODE_FLY_CLIENTMODE:
 		case YSRUNMODE_FLY_SERVERMODE:
 			res=RunSimulationOneStep();
+			break;
+		case YSRUNMODE_REPLAYRECORD:
+			if (world->IsReplayResumed() == YSTRUE) {
+				ChangeRunMode(YSRUNMODE_FLY_REGULAR);
+			}
+			res = RunSimulationOneStep();
 			break;
 		default:
 			ChangeRunMode(YSRUNMODE_MENU);
@@ -2319,7 +2343,7 @@ YSBOOL FsRunLoop::RunShowLandingPracticeInfoOneStep(void)
 	{
 		// This sequence is same as regular simulation after mission-goal dialog.
 		ChangeRunMode(YSRUNMODE_MENU);  // 2014/09/07 Was missing and added.  Why was it working until now?
-		TakeOff();
+		TakeOff(YSRUNMODE_FLY_REGULAR);
 	}
 	return YSTRUE;
 }

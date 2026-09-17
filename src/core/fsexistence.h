@@ -91,7 +91,7 @@ public:
 	FsAirplane *netAirTarget;
 	FsGround *netGndTarget;
 	YSBOOL netAlive;
-	int netDamageTolerance;
+	int netCurrentHealth;
 	// Usage of netAlive
 	//   Set YSTRUE in FsExistence::Initialize(), which is always called when an object is added.
 	//   In Server
@@ -119,6 +119,10 @@ public:
 	YSBOOL useMotionPathOffset;
 	YsVec3 motionPathOffset;
 	YSSIZE_T motionPathIndex;
+
+	//Object visible check
+	YSBOOL isOnScreen;
+	YSBOOL isSubpixel;
 
 protected:
 	FsExistence();
@@ -264,7 +268,7 @@ public:
 
 protected:
 	FsAirplaneProperty prop;
-	int defDamageTolerance; // <- defDamageTolerance is set in FsAirplane::SetProperty
+	int defaultHealth; // <- defaultHealth is set in FsAirplane::SetProperty
 
 	// Autopilot >>
 	int curAutoPilotIdx;
@@ -284,7 +288,7 @@ public:
 	void Initialize(void);
 	void CleanUp(void);
 
-	void MakeVaporVertexArray(class YsGLVertexBuffer &vtxBuf,class YsGLColorBuffer &colBuf,double currentTime,double remainTime,int step) const;
+	void MakeVaporVertexArray(class YsGLVertexBuffer &vtxBuf,class YsGLColorBuffer &colBuf,double currentTime,double remainTime,int step, double colorScale) const;
 	void MakeSmokeVertexArray(class YsGLVertexBuffer &vtxBuf,class YsGLNormalBuffer &nomBuf,class YsGLColorBuffer &colBuf,double currentTime,double remainTime,FSSMOKETYPE smk,int step) const;
 private:
 	void AddSingleSmokeVertexArray(
@@ -322,12 +326,12 @@ public:
 	virtual void DrawShadow
 	    (const YsMatrix4x4 &viewTfm,const YsMatrix4x4 &projTfm,const YsMatrix4x4 &projPlnTfm) const;
 
-	void AddSmokeToParticleManager(class YsGLParticleManager &partMan,double currentTime,double remainTime) const;
-	void AddSingleSmokeToParticleManager(class YsGLParticleManager &partMan,int smkId,double currentTime,double remainTime) const;
+	void AddSmokeToParticleManager(class YsGLParticleManager &partMan,double currentTime,double remainTime, class FsSimulation *sim) const;
+	void AddSingleSmokeToParticleManager(class YsGLParticleManager &partMan,int smkId,double currentTime,double remainTime, class FsSimulation *sim) const;
 
 	void DrawSmoke(double currentTime,double remainTime,FSSMOKETYPE smk,int d,YSBOOL transparency) const;
 	void DrawSingleSmoke(int smkId,double currentTime,double remainTime,FSSMOKETYPE smk,int d,YSBOOL transparency) const;
-	void DrawVapor(double currentTime,double remainTime,int d,YSBOOL transparency) const;
+	void DrawVapor(double currentTime,double remainTime,int d,YSBOOL transparency, double colorScale) const;
 	YSBOOL HitGround
 	  (FSDIEDOF &diedOf,
 	   int &collType,  // 1:Ground  2:Shell
@@ -364,7 +368,7 @@ public:
 
 	YSRESULT SetProperty(const class FsAirplaneProperty &prp,const wchar_t tmplRootDir[]);
 	const class FsAirplaneProperty &Prop(void) const;
-	int GetDefaultDamageTolerance(void) const;
+	int GetDefaultHealth(void) const;
 	class FsAirplaneProperty &Prop(void);
 	virtual FsVehicleProperty &CommonProp(void);
 	virtual const FsVehicleProperty &CommonProp(void) const;

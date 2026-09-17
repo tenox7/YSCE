@@ -65,7 +65,7 @@
 // #define CRASHINVESTIGATION_SIMDRAWSCREENZBUFFERSENSITIVE
 
 
-
+#include "ui/fsrunloop.h"
 
 
 YsListAllocator <FsAirplane> FsAirplaneAllocator;
@@ -177,10 +177,12 @@ FsSimulation::FsSimulation(FsWorld *w) : airplaneList(FsAirplaneAllocator),groun
 	mainWindowAdditionalAirplaneViewId=0;
 	mainWindowActualViewMode.viewPoint=YsOrigin();
 	mainWindowActualViewMode.viewAttitude=YsZeroAtt();
+	mainWindowActualViewMode.viewMagFix = 1.0;
 	for(auto &swavm : subWindowActualViewMode)
 	{
 		swavm.viewPoint=YsOrigin();
 		swavm.viewAttitude=YsZeroAtt();
+		swavm.viewMagFix = 1.0;
 	}
 	viewAttitudeTransition=YsZeroAtt();
 	viewMagUser=1.0;
@@ -307,9 +309,18 @@ FsSimulation::FsSimulation(FsWorld *w) : airplaneList(FsAirplaneAllocator),groun
 	skyColor.SetIntRGB(0,128,192);
 
 	//lastProjection();
-	lastWindowWidth = 0;
-	lastWindowHeight = 0;
 	lastViewMagUser = 1.0;
+	lastProjMainWindow.viewMagFix = 1.0;
+	lastProjSubWindow1.viewMagFix = 1.0;
+	lastProjSubWindow2.viewMagFix = 1.0;
+
+	lastProjMainWindow.viewportDim.SetX(0);
+	lastProjMainWindow.viewportDim.SetY(0);
+	lastProjSubWindow1.viewportDim.SetX(0);
+	lastProjSubWindow1.viewportDim.SetY(0);
+	lastProjSubWindow2.viewportDim.SetX(0);
+	lastProjSubWindow2.viewportDim.SetY(0);
+
 }
 
 FsSimulation::~FsSimulation()
@@ -1065,7 +1076,7 @@ FsAirplane *FsSimulation::AddAirplane(FsAirplane &airplane,YSBOOL isPlayerPlane,
 		airplaneList.Encache();
 		if(isPlayerPlane==YSTRUE)
 		{
-			SetPlayerAirplane(&neo->dat);
+			SetPlayerAirplane(&neo->dat, YSTRUE);
 		}
 
 		if(netSearchKey!=0)
@@ -1666,6 +1677,7 @@ void FsSimulation::DeleteFlightRecord(const double &t1,const double &t2)
 
 void FsSimulation::RunSimulationOneStep(FsSimulation::FSSIMULATIONSTATE &simState)
 {
+	playingReplay = YSFALSE;
 	switch(simState)
 	{
 	case FSSIMSTATE_CENTERJOYSTICK:
@@ -1837,6 +1849,7 @@ void FsSimulation::ReplayInfo::Initialize(const double beginTimeIn,YSBOOL editMo
 
 void FsSimulation::RunReplaySimulationOneStep(FSSIMULATIONSTATE &simState,FsSimulation::ReplayInfo &replayInfo)
 {
+	playingReplay = YSTRUE;
 	switch(simState)
 	{
 	case FSSIMSTATE_CENTERJOYSTICK:
@@ -1874,7 +1887,7 @@ void FsSimulation::RunReplaySimulationOneStep(FSSIMULATIONSTATE &simState,FsSimu
 		break;
 	case FSSIMSTATE_RUNNING:
 		{
-			double passedTime,actualPassedTime;
+			double passedTime;
 			FSREPLAYMODE prevMode;
 
 			// MEMO: replayMode is updated in SimControlByUser();
@@ -1885,10 +1898,9 @@ void FsSimulation::RunReplaySimulationOneStep(FSSIMULATIONSTATE &simState,FsSimu
 				YSBOOL startResume=YSFALSE;
 
 				passedTime=PassedTime();
-				actualPassedTime=passedTime;  // To control view point during pause.
-
+	
 				const double prevCurrentTime=currentTime;
-
+				
 				switch(replayMode)
 				{
 				case FSREPLAY_VERYFASTREWIND:
@@ -1913,7 +1925,8 @@ void FsSimulation::RunReplaySimulationOneStep(FSSIMULATIONSTATE &simState,FsSimu
 					strcpy(systemMessage,"PLAY");
 					break;
 				case FSREPLAY_FASTFORWARD:
-					passedTime*=4.0;
+					currentTime += passedTime * 4.0;
+					passedTime=0.01;
 					strcpy(systemMessage,"FAST FORWARD");
 					break;
 				case FSREPLAY_VERYFASTFORWARD:
@@ -1922,7 +1935,7 @@ void FsSimulation::RunReplaySimulationOneStep(FSSIMULATIONSTATE &simState,FsSimu
 					strcpy(systemMessage,"VERY FAST FORWARD");
 					break;
 				case FSREPLAY_STEPFORWARD:
-					passedTime=0.05;
+					currentTime += 0.05;
 					replayMode=FSREPLAY_PAUSE;
 					break;
 				case FSREPLAY_STEPBACK:
@@ -2010,19 +2023,6 @@ void FsSimulation::RunReplaySimulationOneStep(FSSIMULATIONSTATE &simState,FsSimu
 				SimulateOneStep(passedTime,YSFALSE,YSFALSE,YSTRUE,YSFALSE,FSUSC_ENABLE/*YSTRUE*/,YSFALSE);
 				SimCheckEndOfFlightRecord();
 
-				if(passedTime<YsTolerance)
-				{
-					SimControlByUser(actualPassedTime,FSUSC_ENABLE);
-					// MEMO:
-					//  SimControlByUser is supposed to be called inside SimulateOneStep function,
-					//  when the parameter userControl!=FSUSC_DISABLE.  However, when
-					//  replayMode==FSREPLAY_PAUSE, the parameter passedTime will be zero, and
-					//  SimControlByUser will not move viewing angle, because the rate of
-					//  rotation depends on passedTime.  So, to allow the user to control
-					//  the viewing angle when the replay is paused, SimControlByUser must
-					//  be called here.
-				}
-
 				if((prevMode==FSREPLAY_BACKWARD ||
 				    prevMode==FSREPLAY_FASTREWIND ||
 				    prevMode==FSREPLAY_VERYFASTREWIND ||
@@ -2055,11 +2055,6 @@ void FsSimulation::RunReplaySimulationOneStep(FSSIMULATIONSTATE &simState,FsSimu
 					replayMode=FSREPLAY_PAUSE;
 				}
 
-				if(replayMode==FSREPLAY_PAUSE)
-				{
-					FsSleep(20);
-				}
-
 				if(YSTRUE==terminate || YSTRUE==startResume)
 				{
 					EraseReplayDialog();
@@ -2072,16 +2067,20 @@ void FsSimulation::RunReplaySimulationOneStep(FSSIMULATIONSTATE &simState,FsSimu
 							playerPlane->isPlayingRecord=YSFALSE;
 							playerPlane->rec->DeleteRecord(currentTime,YsInfinity);
 							bulletHolder.DeleteRecordForResumeFlight(playerPlane,currentTime);
-							playerPlane->Prop().ReadBackControl(userInput);
+							playerPlane->Prop().SetControlsFromFlightState(userInput); //Instead of Prop().ReadBackControl which was setting userInput to air end state 
+							playerPlane->SetAutopilot(NULL);
 
 							endTime=0.0;
 							SetTerminate(YSFALSE);
 							pause=YSTRUE;
+							replayMode = FSREPLAY_PLAY;
+							strcpy(systemMessage, "");
 
 							ClearKeyBuffer();
 							simEvent->DeleteFutureEventForResume(currentTime);
 
 							replayInfo.resumed=YSTRUE;
+							world->SetReplayResumed(YSTRUE);
 						}
 						else  // Failed to resume.
 						{
@@ -2097,6 +2096,7 @@ void FsSimulation::RunReplaySimulationOneStep(FSSIMULATIONSTATE &simState,FsSimu
 			else  // Resumed mode
 			{
 				passedTime=PassedTime();
+				playingReplay = YSFALSE;
 
 				SimulateOneStep(passedTime,YSFALSE,YSTRUE,YSFALSE,YSFALSE,FSUSC_ENABLE /*YSTRUE*/,YSFALSE);
 
@@ -2299,23 +2299,20 @@ void FsSimulation::PrepareRunSimulation(void)
 		{
 			cloudCenter=YsOrigin();
 		}
-		if(cfgPtr->cloudType==FSCLOUDFLAT)
+
+		//Generate both flat and solid clouds for free switching in flight
+		if(cloud->IsReady()!=YSTRUE)
 		{
-			if(cloud->IsReady()!=YSTRUE)
-			{
-				cloud->Scatter(16,cloudCenter,20000.0,1000.0,cfgPtr->ceiling);
-			}
-			if(cloud->IsReady()==YSTRUE && cfgPtr->useOpenGlListForCloud==YSTRUE)
-			{
-				cloud->MakeOpenGlList();
-			}
+			cloud->Scatter(16,cloudCenter,20000.0,1000.0,cfgPtr->ceiling);
 		}
-		if(cfgPtr->cloudType==FSCLOUDSOLID)
+		if(cloud->IsReady()==YSTRUE && cfgPtr->useOpenGlListForCloud==YSTRUE)
 		{
-			if(solidCloud->IsReady()!=YSTRUE)
-			{
-				solidCloud->Make(12,cloudCenter,30000.0,6000.0,cfgPtr->ceiling-400.0,cfgPtr->ceiling+400.0);
-			}
+			cloud->MakeOpenGlList();
+		}
+
+		if(solidCloud->IsReady()!=YSTRUE)
+		{
+			solidCloud->Make(12,cloudCenter,30000.0,6000.0,cfgPtr->ceiling-400.0,cfgPtr->ceiling+400.0);
 		}
 	}
 
@@ -2514,7 +2511,7 @@ void FsSimulation::SimulateOneStep(
 	#ifdef CRASHINVESTIGATION
 		printf("S0\n");
 	#endif
-
+	RealTimeStep();
 
 	if(NULL==firstPlayer.GetObject(this) && NULL!=GetPlayerObject())
 	{
@@ -2528,7 +2525,7 @@ void FsSimulation::SimulateOneStep(
 	}
 	airTrafficSequence->RefreshRunwayUsage(this);
 
-	if(pause!=YSTRUE)
+	if (pause != YSTRUE && (replayMode != FSREPLAY_PAUSE && replayMode != FSREPLAY_FASTREWIND && replayMode != FSREPLAY_VERYFASTREWIND && replayMode != FSREPLAY_BACKWARD))
 	{
 		double deltaTime=YsSmaller(passedTime,3.0);
 
@@ -2593,7 +2590,7 @@ void FsSimulation::SimulateOneStep(
 
 			if(demoMode!=YSTRUE && networkStandby!=YSTRUE && userControl!=FSUSC_DISABLE)
 			{
-				SimControlByUser(dt,userControl);  // CAUTION: SimControlByUser must be after SimControlByComputer
+				SimControlByUser(realTimeStep,userControl);  // CAUTION: SimControlByUser must be after SimControlByComputer
 			}
 
 		#ifdef CRASHINVESTIGATION
@@ -2690,7 +2687,7 @@ void FsSimulation::SimulateOneStep(
 	}
 	else // if(pause==YSTRUE)
 	{
-		SimControlByUser(passedTime,userControl);
+		SimControlByUser(realTimeStep,userControl); //Must use realTimeStep otherwise sim cannot process input when FSREPLAY_PAUSE
 	}
 
 
@@ -2715,18 +2712,18 @@ void FsSimulation::SimulateOneStep(
 
 		needRedraw=YSTRUE;
 
-		if(focusAir==NULL)
-		{
-			focusAir=GetPlayerAirplane();
-			if(focusAir==NULL)
-			{
-				focusAir=FindNextAirplane(NULL);
-			}
-		}
-
 		if(CheckNoExtAirView()==YSTRUE)  // 2006/06/11
 		{
 			focusAir=GetPlayerAirplane();
+		}
+		else if (focusAir == NULL || focusAir->IsAlive() != YSTRUE)
+		{
+			focusAir = FindNextAirplane(focusAir);
+
+			if (focusAir == NULL)
+			{
+				focusAir = GetPlayerAirplane();
+			}
 		}
 
 		DecideAllViewPoint(passedTime);
@@ -3698,7 +3695,7 @@ void FsSimulation::SimMove(const double &dt)
 		   airplane->Prop().IsActive()!=YSTRUE &&
 		   airplane->Prop().GetFlightState()!=FSOVERRUN)
 		{
-			if(cfgPtr->useParticle==YSTRUE)
+			if(cfgPtr->useParticleFire==YSTRUE)
 			{
 				if(airplane->refTime1<currentTime || airplane->refTime2<currentTime)
 				{
@@ -3821,7 +3818,7 @@ void FsSimulation::SimMove(const double &dt)
 			ground->PlayRecord(currentTime+dt,dt);
 			if(YSTRUE==prevAlive && YSTRUE!=ground->IsAlive())
 			{
-				if(YSTRUE==cfgPtr->useParticle && replayMode==FSREPLAY_PLAY)
+				if(YSTRUE==cfgPtr->useParticleFire && replayMode==FSREPLAY_PLAY)
 				{
 					auto partGenPtr=particleStore.CreateGenerator(FSPARTICLEGENERATOR_BURN,ground->GetPosition(),YsYVec(),10.0,ground->GetPosition().y());
 					partGenPtr->SetSize(3.0,20.0,3.0);
@@ -3849,7 +3846,7 @@ void FsSimulation::SimMove(const double &dt)
 		{
 			// Don't shoot.
 		}
-		else if(ground->isPlayingRecord!=YSTRUE)
+		else if(ground->isPlayingRecord!=YSTRUE && world->GroundFireDisabled != YSTRUE)
 		{
 			ground->Prop().FireGun(currentTime,dt,this,bulletHolder,ground);
 			if(ground->netType==FSNET_LOCAL)
@@ -4103,9 +4100,7 @@ void FsSimulation::SimCacheRectRegion(void)
 
 void FsSimulation::UpdateGroundTerrainElevationAndNormal(FsGround *gndPtr)
 {
-	if(gndPtr->IsAlive()==YSTRUE &&
-	   (gndPtr->Prop().IsOnCarrier()==YSTRUE ||
-	    gndPtr->Prop().GetWhoIsInControl()!=FSVEHICLE_CTRL_BY_NOBODY))
+	if(gndPtr->IsAlive()==YSTRUE)
 	{
 		const YsVec3 &pos=gndPtr->GetPosition();
 
@@ -4146,58 +4141,63 @@ void FsSimulation::SimComputeAirToObjCollision(void)
 		airPtr->airCollision.CleanUp();
 		airPtr->gndCollision.CleanUp();
 	}
+	
+	int playerId = FsExistence::GetSearchKey(GetPlayerAirplane());
 
 	for(FsAirplane *air1=NULL; NULL!=(air1=FindNextAirplane(air1)); )
 	{
-		if(air1->IsAlive()==YSTRUE)
+		if (world->GetIsNetClient() == YSFALSE || air1->SearchKey() == playerId) //Skip collision check for non-player aircraft as client
 		{
-			GetLattice().GetAirCollisionCandidate(airCandidate,air1);
-
-			for(int j=0; j<airCandidate.GetN(); j++)
+			if (air1->IsAlive() == YSTRUE)
 			{
-				FsAirplane *air2=airCandidate[j];
-				if(YSTRUE==cfgPtr->midAirCollision || YSTRUE==air2->Prop().IsRacingCheckPoint())
-				{
-					if(air1->SearchKey()<air2->SearchKey() &&
-					   air2->IsAlive()==YSTRUE &&
-					  (air1->Prop().IsActive()==YSTRUE || air2->Prop().IsActive()==YSTRUE))  // 2005/03/03
-					{
-						YsVec3 collPos;
-						if(CheckMidAir(collPos,*air1,*air2)==YSTRUE)
-						{
-							air1->airCollision.Increment();
-							air1->airCollision.Last().objKey=air2->SearchKey();
-							air1->airCollision.Last().pos=collPos;
+				GetLattice().GetAirCollisionCandidate(airCandidate, air1);
 
-							air2->airCollision.Increment();
-							air2->airCollision.Last().objKey=air1->SearchKey();
-							air2->airCollision.Last().pos=collPos;
+				for (int j = 0; j < airCandidate.GetN(); j++)
+				{
+					FsAirplane* air2 = airCandidate[j];
+					if (YSTRUE == cfgPtr->midAirCollision || YSTRUE == air2->Prop().IsRacingCheckPoint())
+					{
+						if ((air1->SearchKey() < air2->SearchKey() || world->GetIsNetClient() == YSTRUE) &&
+							air2->IsAlive() == YSTRUE &&
+							(air1->Prop().IsActive() == YSTRUE || air2->Prop().IsActive() == YSTRUE))  // 2005/03/03
+						{
+							YsVec3 collPos;
+							if (CheckMidAir(collPos, *air1, *air2) == YSTRUE)
+							{
+								air1->airCollision.Increment();
+								air1->airCollision.Last().objKey = air2->SearchKey();
+								air1->airCollision.Last().pos = collPos;
+
+								air2->airCollision.Increment();
+								air2->airCollision.Last().objKey = air1->SearchKey();
+								air2->airCollision.Last().pos = collPos;
+							}
 						}
 					}
 				}
 			}
-		}
 
-		if(air1->GetPosition().y()-air1->GetApproximatedCollideRadius()<tallestGroundObjectHeight)
-		{
-			GetLattice().GetGndCollisionCandidate(gndCandidate,air1);
-			for(int j=0; j<gndCandidate.GetN(); j++)
+			if (air1->GetPosition().y() - air1->GetApproximatedCollideRadius() < tallestGroundObjectHeight)
 			{
-				FsGround *gnd2=gndCandidate[j];
-				if(YSTRUE==cfgPtr->midAirCollision || YSTRUE==gnd2->Prop().IsRacingCheckPoint())
+				GetLattice().GetGndCollisionCandidate(gndCandidate, air1);
+				for (int j = 0; j < gndCandidate.GetN(); j++)
 				{
-					if(gnd2->IsAlive()==YSTRUE)
+					FsGround* gnd2 = gndCandidate[j];
+					if (YSTRUE == cfgPtr->midAirCollision || YSTRUE == gnd2->Prop().IsRacingCheckPoint())
 					{
-						YsVec3 collPos;
-						if(CheckMidAir(collPos,*air1,*gnd2)==YSTRUE)
+						if (gnd2->IsAlive() == YSTRUE)
 						{
-							air1->gndCollision.Increment();
-							air1->gndCollision.Last().objKey=gnd2->SearchKey();
-							air1->gndCollision.Last().pos=collPos;
+							YsVec3 collPos;
+							if (CheckMidAir(collPos, *air1, *gnd2) == YSTRUE)
+							{
+								air1->gndCollision.Increment();
+								air1->gndCollision.Last().objKey = gnd2->SearchKey();
+								air1->gndCollision.Last().pos = collPos;
 
-							gnd2->airCollision.Increment();
-							gnd2->airCollision.Last().objKey=air1->SearchKey();
-							gnd2->airCollision.Last().pos=collPos;
+								gnd2->airCollision.Increment();
+								gnd2->airCollision.Last().objKey = air1->SearchKey();
+								gnd2->airCollision.Last().pos = collPos;
+							}
 						}
 					}
 				}
@@ -4226,18 +4226,32 @@ void FsSimulation::SimProcessCollisionAndTerrain(const double & /*dt*/)
 			{
 				airPos=airPtr->GetPosition();
 				onCarrier=YSFALSE;
-				for(i=0; i<aircraftCarrierList.GetN(); i++)
+				YsVec3 nose, left, right;
+				nose = airPtr->Prop().GetTirePosition(2) + airPos; //This assumes aircraft is level at touchdown
+				left = airPtr->Prop().GetTirePosition(0) + airPos;
+				right = airPtr->Prop().GetTirePosition(1) + airPos;
+
+				for (i = 0; i < aircraftCarrierList.GetN(); i++)
 				{
-					FsAircraftCarrierProperty *prop;
-					prop=aircraftCarrierList[i]->Prop().GetAircraftCarrierProperty();
-					if(prop->IsOnDeck(airPos)==YSTRUE)
+					if (aircraftCarrierList[i]->IsAlive() == YSTRUE)
 					{
-						// Even if flight state is FSGROUND and the airplane is not on
-						// the runway, possibly the airplane is on the flight deck of
-						// an aircraft carrier.
-						airPtr->Prop().SetOutOfRunway(YSFALSE);
-						onCarrier=YSTRUE;
-						break;
+						FsAircraftCarrierProperty* prop;
+						prop = aircraftCarrierList[i]->Prop().GetAircraftCarrierProperty();
+						YsVec3 cPos = aircraftCarrierList[i]->Prop().GetPosition();
+						double cRadius = aircraftCarrierList[i]->Prop().GetOutsideRadius();
+						YsVec3 difference = airPos - cPos;
+						if (difference.GetLength() < cRadius)
+						{
+							if (prop->IsOnDeck(nose) == YSTRUE || prop->IsOnDeck(left) == YSTRUE || prop->IsOnDeck(right) == YSTRUE)
+							{
+								// Even if flight state is FSGROUND and the airplane is not on
+								// the runway, possibly the airplane is on the flight deck of
+								// an aircraft carrier.
+								airPtr->Prop().SetOutOfRunway(YSFALSE);
+								onCarrier = YSTRUE;
+								break;
+							}
+						}
 					}
 				}
 
@@ -4581,7 +4595,7 @@ void FsSimulation::KillCallBack(FsExistence &obj,const YsVec3 &pos)
 	}
 	else
 	{
-		if(cfgPtr->useParticle==YSTRUE)
+		if(cfgPtr->useParticleFire==YSTRUE)
 		{
 			explosionHolder.Explode(currentTime,pos,1.0,1.0,rad+15.0,YSTRUE,NULL,YSTRUE);
 			auto partGenPtr=particleStore.CreateGenerator(FSPARTICLEGENERATOR_BURN,pos,YsYVec(),10.0,pos.y());
@@ -5264,22 +5278,34 @@ void FsSimulation::SimProcessRawKey(int rawKey)
 		}
 		break;
 	case FSKEY_Z:
-		replayMode=FSREPLAY_VERYFASTREWIND;
+		if (playingReplay == YSTRUE) {
+			replayMode = FSREPLAY_VERYFASTREWIND;
+		}
 		break;
 	case FSKEY_X:
-		replayMode=FSREPLAY_FASTREWIND;
+		if (playingReplay == YSTRUE) {
+			replayMode = FSREPLAY_FASTREWIND;
+		}
 		break;
 	case FSKEY_C:
-		replayMode=FSREPLAY_PLAY;
+		if (playingReplay == YSTRUE) {
+			replayMode = FSREPLAY_PLAY;
+		}
 		break;
 	case FSKEY_V:
-		replayMode=FSREPLAY_FASTFORWARD;
+		if (playingReplay == YSTRUE) {
+			replayMode = FSREPLAY_FASTFORWARD;
+		}
 		break;
 	case FSKEY_B:
-		replayMode=FSREPLAY_VERYFASTFORWARD;
+		if (playingReplay == YSTRUE) {
+			replayMode = FSREPLAY_VERYFASTFORWARD;
+		}
 		break;
 	case FSKEY_D:
-		replayMode=FSREPLAY_PAUSE;
+		if (playingReplay == YSTRUE) {
+			replayMode = FSREPLAY_PAUSE;
+		}
 		break;
 	case FSKEY_HOME:
 		if(EveryAirplaneIsRecordedAirplane()==YSTRUE)
@@ -5389,30 +5415,30 @@ void FsSimulation::SimProcessGhostView(const double dt)
 	vp=userInput.ctlElevator*(YsPi/2.0)*dt;
 	vb=userInput.ctlAileron*(YsPi)*dt;
 	vh=(sin(viewAttitude.b())/5.0*dt)*YsAbs(cos(viewAttitude.p()));
-	vy=userInput.ctlRudder*dt;
-
+	//vy=userInput.ctlRudder*dt;
+	double speedMult = userInput.ctlThrottle;
 
 #if 1
 	{
-		viewAttitude.SetP(YsBound(viewAttitude.p()+vp,-YsPi/2.5,YsPi/2.5));
+		viewAttitude.SetP(YsBound(viewAttitude.p()+vp,-YsPi/2,YsPi/2));
 		viewAttitude.SetH(viewAttitude.h()+vb);  // vb~=Aileron.  Let aileron control heading.
-		if(viewAttitude.p()<-YsPi/2.5)
+		if(viewAttitude.p()<-YsPi/2)
 		{
-			viewAttitude.SetP(-YsPi/2.5);
+			viewAttitude.SetP(-YsPi/2);
 		}
-		else if(viewAttitude.p()>YsPi/2.5)
+		else if(viewAttitude.p()>YsPi/2)
 		{
-			viewAttitude.SetP(YsPi/2.5);
+			viewAttitude.SetP(YsPi/2);
 		}
 		viewAttitude.SetB(viewAttitude.b()/2.0);
 
 		if(userInput.ctlFireWeaponButton==YSTRUE)
 		{
-			desigSpd=280.0;
+			desigSpd=350.0*speedMult+5;
 		}
 		else if(userInput.ctlCycleWeaponButton==YSTRUE)
 		{
-			desigSpd=-280.0;
+			desigSpd=-350.0*speedMult+5;
 		}
 		else
 		{
@@ -5447,16 +5473,16 @@ void FsSimulation::SimProcessGhostView(const double dt)
 			ghostViewSpeed=desigSpd;
 		}
 	}
-
+	
 	YsVec3 displacement;
 	displacement=viewAttitude.GetForwardVector()*ghostViewSpeed*dt;
 	viewPoint+=displacement;
 
 	double elv;
 	elv=GetFieldElevation(viewPoint.x(),viewPoint.z());
-	if(viewPoint.y()<elv+10.0)
+	if(viewPoint.y()<elv+0.25)
 	{
-		viewPoint.SetY(elv+10.0);
+		viewPoint.SetY(elv+0.25);
 	}
 }
 
@@ -5561,7 +5587,7 @@ void FsSimulation::SimProcessLoadingDialog(YSBOOL lb,YSBOOL mb,YSBOOL rb,int mx,
 			tmpl=world->GetAirplaneTemplate(playerPlane->Prop().GetIdentifier());
 			if(tmpl!=NULL)
 			{
-				sprintf(str,"STRENGTH %d",tmpl->GetProperty()->GetDamageTolerance());
+				sprintf(str,"STRENGTH %d",tmpl->GetProperty()->GetCurrentHealth());
 
 				playerPlane->Prop().SendCommand(str);
 
@@ -6403,13 +6429,13 @@ void FsSimulation::SimDrawAllScreen(YSBOOL demoMode,YSBOOL showTimer,YSBOOL show
 }
 
 void FsSimulation::SimDrawScreen(
-    const double &dt,const FsCockpitIndicationSet &cockpitIndicationSet,YSBOOL demoMode,YSBOOL showTimer,YSBOOL showTimeMarker,const ActualViewMode &actualViewMode)
+	const double& dt, const FsCockpitIndicationSet& cockpitIndicationSet, YSBOOL demoMode, YSBOOL showTimer, YSBOOL showTimeMarker, const ActualViewMode& actualViewMode)
 {
 #ifdef CRASHINVESTIGATION_SIMDRAWSCREEN
 	printf("SIMDRAW-1\n");
 #endif
 	FsProjection prj;
-	GetProjection(prj,actualViewMode);
+	GetProjection(prj, actualViewMode);
 
 
 	// printf("%s\n",ViewmodeToStr(actualViewMode.actualViewMode));
@@ -6418,30 +6444,34 @@ void FsSimulation::SimDrawScreen(
 	YsGLParticleManager partMan;
 	{
 		particleStore.AddToParticleManager(partMan);
-		if(YSTRUE==cfgPtr->useParticle)
-		{
-			solidCloud->AddToParticleManager(partMan,env,*weather,actualViewMode.viewAttitude.GetForwardVector(),actualViewMode.viewMat,prj.nearz,prj.farz,prj.tanFov);
-			bulletHolder.AddToParticleManager(partMan,currentTime);
 
-			for(FsAirplane *seeker=nullptr; nullptr!=(seeker=FindNextAirplane(seeker)); )
+		if (cfgPtr->cloudType == FSCLOUDPARTICLE)
+		{
+			solidCloud->AddToParticleManager(partMan, env, *weather, actualViewMode.viewAttitude.GetForwardVector(), actualViewMode.viewMat, prj.nearz, prj.farz, prj.tanFov);
+		}
+		if (cfgPtr->smkType == FSSMKPARTICLE)
+		{
+			bulletHolder.AddToParticleManager(partMan, currentTime);
+			for (FsAirplane* seeker = nullptr; nullptr != (seeker = FindNextAirplane(seeker)); )
 			{
-				seeker->AddSmokeToParticleManager(partMan,currentTime,cfgPtr->smkRemainTime);
+				seeker->AddSmokeToParticleManager(partMan, currentTime, cfgPtr->smkRemainTime, this);
 			}
 		}
-		partMan.Sort(actualViewMode.viewPoint,actualViewMode.viewAttitude.GetForwardVector(),threadPool);	
 
-		auto &commonTexture=FsCommonTexture::GetCommonTexture();
+		partMan.Sort(actualViewMode.viewPoint, actualViewMode.viewAttitude.GetForwardVector(), threadPool);
+
+		auto& commonTexture = FsCommonTexture::GetCommonTexture();
 		commonTexture.GetParticleSpriteTexture();
 
-		if(YSTRUE==FsIsPointSpriteAvailable())
+		if (YSTRUE == FsIsPointSpriteAvailable())
 		{
-			const double pointSpriteDistThreshold=1000.0;
-			partMan.MakeBufferForTriangle(actualViewMode.viewAttitude.GetForwardVector(),0.125,pointSpriteDistThreshold);
+			const double pointSpriteDistThreshold = 1000.0;
+			partMan.MakeBufferForTriangle(actualViewMode.viewAttitude.GetForwardVector(), 0.125, pointSpriteDistThreshold);
 			partMan.MakeBufferForPointSprite(pointSpriteDistThreshold);
 		}
 		else
 		{
-			partMan.MakeBufferForTriangle(actualViewMode.viewAttitude.GetForwardVector(),0.125,prj.farz);
+			partMan.MakeBufferForTriangle(actualViewMode.viewAttitude.GetForwardVector(), 0.125, prj.farz);
 		}
 	}
 
@@ -6457,24 +6487,24 @@ void FsSimulation::SimDrawScreen(
 	printf("SIMDRAW-3\n");
 #endif
 
-	if(weather->GetFog()==YSTRUE)
+	if (weather->GetFog() == YSTRUE)
 	{
-		FsFogOn(fogColor,actualViewMode.fogVisibility);
+		FsFogOn(fogColor, actualViewMode.fogVisibility);
 	}
 
 #ifdef CRASHINVESTIGATION_SIMDRAWSCREEN
 	printf("SIMDRAW-4\n");
 #endif
 
-	if(YSTRUE==FsIsShadowMapAvailable())
+	if (YSTRUE == FsIsShadowMapAvailable())
 	{
 		SimDrawShadowMap(actualViewMode);
 	}
 
 
-	auto projTfmBkg=SimDrawPrepareBackground(actualViewMode);
-	SimDrawBackground(actualViewMode,projTfmBkg);
-	if(weather->GetFog()==YSTRUE)
+	auto projTfmBkg = SimDrawPrepareBackground(actualViewMode);
+	SimDrawBackground(actualViewMode, projTfmBkg);
+	if (weather->GetFog() == YSTRUE)
 	{
 		FsFogOff();
 	}
@@ -6485,24 +6515,25 @@ void FsSimulation::SimDrawScreen(
 	printf("SIMDRAW-5\n");
 #endif
 
-// LARGE_INTEGER ctr1,ctr2,ctr3,ctr4,ctr5;
-// QueryPerformanceCounter(&ctr1);
+	// LARGE_INTEGER ctr1,ctr2,ctr3,ctr4,ctr5;
+	// QueryPerformanceCounter(&ctr1);
 
 	{
 #ifdef CRASHINVESTIGATION_SIMDRAWSCREEN
-	printf("SIMDRAW-5.1\n");
+		printf("SIMDRAW-5.1\n");
 #endif
 
 
-		if(actualViewMode.actualViewMode!=FSCOCKPITVIEW &&
-		   actualViewMode.actualViewMode!=FSADDITIONALAIRPLANEVIEW &&
-		   actualViewMode.actualViewMode!=FSADDITIONALAIRPLANEVIEW_CABIN)
+		if (actualViewMode.actualViewMode != FSCOCKPITVIEW &&
+			actualViewMode.actualViewMode != FSADDITIONALAIRPLANEVIEW &&
+			actualViewMode.actualViewMode != FSADDITIONALAIRPLANEVIEW_CABIN &&
+			actualViewMode.actualViewMode != FSGHOSTVIEW)
 		{
-			prj.nearz=1.0;
+			prj.nearz = 1.0;
 		}
 
 #ifdef CRASHINVESTIGATION_SIMDRAWSCREEN
-	printf("SIMDRAW-5.2\n");
+		printf("SIMDRAW-5.2\n");
 #endif
 
 		// See update.txt for changes of depth intervals.
@@ -6510,60 +6541,60 @@ void FsSimulation::SimDrawScreen(
 		//   Protect Polygon are drawn with side walls to prevent
 		//   something to be seen through the protect polygon due to
 		//   the clipping.
-		if(cfgPtr->zbuffQuality<=0)
+		if (cfgPtr->zbuffQuality <= 0)
 		{
-			auto usedProj=SimDrawPrepareRange(actualViewMode,prj.nearz,prj.farz);
-			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
+			auto usedProj = SimDrawPrepareRange(actualViewMode, prj.nearz, prj.farz);
+			SimDrawScreenZBufferSensitive(cockpitIndicationSet, partMan, actualViewMode, usedProj);
 		}
-		else if(cfgPtr->zbuffQuality==1)
+		else if (cfgPtr->zbuffQuality == 1)
 		{
-			auto usedProj=SimDrawPrepareRange(actualViewMode,200.0    ,prj.farz);
-			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
-			usedProj=SimDrawPrepareRange(actualViewMode,prj.nearz,201.0);
-			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
+			auto usedProj = SimDrawPrepareRange(actualViewMode, 200.0, prj.farz);
+			SimDrawScreenZBufferSensitive(cockpitIndicationSet, partMan, actualViewMode, usedProj);
+			usedProj = SimDrawPrepareRange(actualViewMode, prj.nearz, 201.0);
+			SimDrawScreenZBufferSensitive(cockpitIndicationSet, partMan, actualViewMode, usedProj);
 		}
-		else if(cfgPtr->zbuffQuality==2)
+		else if (cfgPtr->zbuffQuality == 2)
 		{
-			auto usedProj=SimDrawPrepareRange(actualViewMode,400.0    ,prj.farz);
-			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
-			usedProj=SimDrawPrepareRange(actualViewMode,100.0    ,401.0);
-			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
-			usedProj=SimDrawPrepareRange(actualViewMode,prj.nearz,101.0);
-			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
+			auto usedProj = SimDrawPrepareRange(actualViewMode, 400.0, prj.farz);
+			SimDrawScreenZBufferSensitive(cockpitIndicationSet, partMan, actualViewMode, usedProj);
+			usedProj = SimDrawPrepareRange(actualViewMode, 100.0, 401.0);
+			SimDrawScreenZBufferSensitive(cockpitIndicationSet, partMan, actualViewMode, usedProj);
+			usedProj = SimDrawPrepareRange(actualViewMode, prj.nearz, 101.0);
+			SimDrawScreenZBufferSensitive(cockpitIndicationSet, partMan, actualViewMode, usedProj);
 		}
-		else if(cfgPtr->zbuffQuality>=3)
+		else if (cfgPtr->zbuffQuality >= 3)
 		{
-			auto usedProj=SimDrawPrepareRange(actualViewMode,1000.0   ,prj.farz);
-			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
-			usedProj=SimDrawPrepareRange(actualViewMode,500.0    ,1001.0);
-			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
-			usedProj=SimDrawPrepareRange(actualViewMode,300.0    ,501.0);
-			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
-			usedProj=SimDrawPrepareRange(actualViewMode,100.0    ,301.0);
-			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
-			usedProj=SimDrawPrepareRange(actualViewMode,prj.nearz,101.0);
-			SimDrawScreenZBufferSensitive(cockpitIndicationSet,partMan,actualViewMode,usedProj);
+			auto usedProj = SimDrawPrepareRange(actualViewMode, 1000.0, prj.farz);
+			SimDrawScreenZBufferSensitive(cockpitIndicationSet, partMan, actualViewMode, usedProj);
+			usedProj = SimDrawPrepareRange(actualViewMode, 500.0, 1001.0);
+			SimDrawScreenZBufferSensitive(cockpitIndicationSet, partMan, actualViewMode, usedProj);
+			usedProj = SimDrawPrepareRange(actualViewMode, 300.0, 501.0);
+			SimDrawScreenZBufferSensitive(cockpitIndicationSet, partMan, actualViewMode, usedProj);
+			usedProj = SimDrawPrepareRange(actualViewMode, 100.0, 301.0);
+			SimDrawScreenZBufferSensitive(cockpitIndicationSet, partMan, actualViewMode, usedProj);
+			usedProj = SimDrawPrepareRange(actualViewMode, prj.nearz, 101.0);
+			SimDrawScreenZBufferSensitive(cockpitIndicationSet, partMan, actualViewMode, usedProj);
 		}
 
 #ifdef CRASHINVESTIGATION_SIMDRAWSCREEN
-	printf("SIMDRAW-5.y\n");
+		printf("SIMDRAW-5.y\n");
 #endif
 
 	}
 
-	auto projForeGround=SimDrawPrepareNormal(actualViewMode);
+	auto projForeGround = SimDrawPrepareNormal(actualViewMode);
 
 #ifdef CRASHINVESTIGATION_SIMDRAWSCREEN
 	printf("SIMDRAW-6\n");
 #endif
 
-// QueryPerformanceCounter(&ctr2);
+	// QueryPerformanceCounter(&ctr2);
 
 #ifdef CRASHINVESTIGATION_SIMDRAWSCREEN
 	printf("SIMDRAW-7\n");
 #endif
 
-	if(cfgPtr->drawVirtualJoystick==YSTRUE)
+	if (cfgPtr->drawVirtualJoystick == YSTRUE)
 	{
 		SimDrawJoystick(actualViewMode);
 	}
@@ -6572,7 +6603,7 @@ void FsSimulation::SimDrawScreen(
 	printf("SIMDRAW-8\n");
 #endif
 
-	SimDrawForeground(actualViewMode,projForeGround,cockpitIndicationSet,demoMode,showTimer,showTimeMarker);
+	SimDrawForeground(actualViewMode, projForeGround, cockpitIndicationSet, demoMode, showTimer, showTimeMarker);
 
 #ifdef CRASHINVESTIGATION_SIMDRAWSCREEN
 	printf("SIMDRAW-9\n");
@@ -6580,18 +6611,21 @@ void FsSimulation::SimDrawScreen(
 
 	SimDrawBlackout(actualViewMode);
 
-// QueryPerformanceCounter(&ctr3);
-
-	nFrameForFpsCount++;
-	auto fpsTimer=FsSubSecondTimer();
-	if(nextFpsUpdateTime<fpsTimer)
+	// QueryPerformanceCounter(&ctr3);
+	if (FsIsMainWindowActive() == YSTRUE)
 	{
-		auto dtMS=fpsTimer-lastFpsUpdateTime;
-		double dt=(double)dtMS/1000.0;
-		fps=(double)nFrameForFpsCount/dt;
-		nFrameForFpsCount=0;
-		lastFpsUpdateTime=fpsTimer;
-		nextFpsUpdateTime=fpsTimer+500;
+		nFrameForFpsCount++;
+		auto fpsTimer=FsSubSecondTimer();
+	
+		if (nextFpsUpdateTime < fpsTimer)
+		{
+			auto dtMS = fpsTimer - lastFpsUpdateTime;
+			double dt = (double)dtMS / 1000.0;
+			fps = (double)nFrameForFpsCount / dt;
+			nFrameForFpsCount = 0;
+			lastFpsUpdateTime = fpsTimer;
+			nextFpsUpdateTime = fpsTimer + 500;
+		}
 	}
 
 #ifdef CRASHINVESTIGATION_SIMDRAWSCREEN
@@ -6660,10 +6694,7 @@ void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode)
 				airSeeker=NULL;
 				while((airSeeker=FindNextAirplane(airSeeker))!=NULL)
 				{
-					// only draw if apparent radius is larger than 1 pixel AND object is within camera's view
-					if (cfgPtr->shadowOfDeadAirplane == YSTRUE
-						&& airSeeker->IsAlive() == YSTRUE
-						&& IsObjectVisible(airSeeker, actualViewMode, proj))
+					if (airSeeker->isSubpixel == YSFALSE && (cfgPtr->shadowOfDeadAirplane == YSTRUE || airSeeker->IsAlive() == YSTRUE))
 					{
 						airSeeker->DrawShadow(viewMat, projMat, YsIdentity4x4());
 						if (cfgPtr->drawOrdinance == YSTRUE)
@@ -6678,10 +6709,7 @@ void FsSimulation::SimDrawShadowMap(const ActualViewMode &actualViewMode)
 				gndSeeker=NULL;
 				while((gndSeeker=FindNextGround(gndSeeker))!=NULL)
 				{
-					if (cfgPtr->shadowOfDeadAirplane == YSTRUE
-						&& gndSeeker->IsAlive() == YSTRUE
-						&& gndSeeker->Prop().NoShadow() != YSTRUE
-						&& IsObjectVisible(gndSeeker, actualViewMode, proj))
+					if (gndSeeker->isSubpixel == YSFALSE && gndSeeker->Prop().NoShadow() != YSTRUE && (cfgPtr->shadowOfDeadAirplane == YSTRUE || gndSeeker->IsAlive() == YSTRUE))
 					{
 						gndSeeker->DrawShadow(viewMat, projMat, YsIdentity4x4());
 					}
@@ -6772,7 +6800,7 @@ void FsSimulation::SimDrawScreenZBufferSensitive(
 #endif
 
 	auto smokeTrailType=cfgPtr->smkType;
-	if(YSTRUE==cfgPtr->useParticle)
+	if(cfgPtr->smkType == FSSMKPARTICLE)
 	{
 		smokeTrailType=FSSMKNULL;
 	}
@@ -6818,7 +6846,7 @@ void FsSimulation::SimDrawScreenZBufferSensitive(
 
 	weather->DrawCloudLayer(actualViewMode.viewPoint);  // DrawCloudLayer must come before drawing solid clouds, which may be drawn by particles
 
-	if(YSTRUE!=cfgPtr->useParticle)
+	if(cfgPtr->cloudType == FSCLOUDSOLID)
 	{
 		solidCloud->Draw(env,*weather,actualViewMode.viewMat,proj.nearz,proj.farz,proj.tanFov);
 	}
@@ -6899,7 +6927,7 @@ FsProjection FsSimulation::SimDrawPrepare(const ActualViewMode &actualViewMode)
 #ifdef CRASHINVESTIGATION_SIMDRAWSCREEN
 	printf("SIMDRAW-2.2\n");
 #endif
-
+	
 	GetProjection(prj,actualViewMode);
 	nearZ=prj.nearz;
 	farZ=prj.farz;
@@ -6922,7 +6950,7 @@ FsProjection FsSimulation::SimDrawPrepare(const ActualViewMode &actualViewMode)
 
 	sizx=hei*4/3;
 	sizy=hei;
-	if (cfgPtr->centerCameraPerspective == YSFALSE)
+	if (actualViewMode.centerThisCamera == YSFALSE)
 	{
 		hud->SetAreaByCenter(wid / 2, hei * 2 / 3, sizx * 2 / 3, sizy * 2 / 3);
 	}
@@ -6967,7 +6995,7 @@ FsProjection FsSimulation::SimDrawPrepareRange(const ActualViewMode &actualViewM
 	FsGetWindowSize(wid,hei);
 
 	FsFlushScene();
-
+	
 	GetProjection(prj,actualViewMode);
 	prj.nearz=nZ;
 	prj.farz=fZ;
@@ -6990,7 +7018,7 @@ FsProjection FsSimulation::SimDrawPrepareNormal(const ActualViewMode &actualView
 	FsGetWindowSize(wid,hei);
 
 	FsFlushScene();
-
+	
 	GetProjection(prj,actualViewMode);
 	nearZ=prj.nearz;
 	farZ=prj.farz;
@@ -7167,7 +7195,7 @@ void FsSimulation::SimDrawAirplane(const ActualViewMode &actualViewMode,const Fs
 		if((actualViewMode.actualViewMode==FSCOCKPITVIEW ||
 		    actualViewMode.actualViewMode==FSADDITIONALAIRPLANEVIEW ||
 		    actualViewMode.actualViewMode==FSADDITIONALAIRPLANEVIEW_CABIN) &&
-		   IsPlayerAirplane(seeker)==YSTRUE)
+		   IsPlayerAirplane(seeker)==YSTRUE && seeker->IsAlive() == YSTRUE)
 		{
 			if(seeker->cockpit!=nullptr)
 			{
@@ -7188,12 +7216,23 @@ void FsSimulation::SimDrawAirplane(const ActualViewMode &actualViewMode,const Fs
 //FOV and screen size (pixels) check for draw culling purposes
 bool FsSimulation::IsObjectVisible(FsExistence* obj, const ActualViewMode& actualViewMode, const FsProjection& proj) const
 {
+	obj->isOnScreen = YSFALSE;
+	obj->isSubpixel = YSTRUE;
+
 	//calculate object position in player's view
 	YsVec3 objPosInCamSpace = actualViewMode.viewMat * obj->GetPosition();
 
 	//load visual bounding box corners
 	YsVec3 boxMin, boxMax;
 	obj->vis.GetBoundingBox(boxMin, boxMax);
+
+	YsVec3 empty(0.0, 0.0, 0.0);
+	if (boxMin == empty && boxMax == empty) //Blockplanes fail DNM bbox check. Simple hack to force drawing
+	{
+		obj->isOnScreen = YSTRUE;
+		obj->isSubpixel = YSFALSE;
+		return true;
+	}
 
 	//calculate span of bounding box
 	double boundingBoxDiag = ((boxMin - boxMax).GetLength());
@@ -7208,12 +7247,16 @@ bool FsSimulation::IsObjectVisible(FsExistence* obj, const ActualViewMode& actua
 	//(angular culling method below sometimes fails for extreme angles at close distances to camera)
 	if (objDistToCam < 2.0 * boundingBoxDiag)
 	{
+		obj->isOnScreen = YSTRUE;
+		obj->isSubpixel = YSFALSE;
 		return true;
 	}
 
 	//don't perform FOV check if obj too small to see
 	if (apparentRadInPixels < 1.0)
 	{
+		obj->isOnScreen = YSFALSE;
+		obj->isSubpixel = YSTRUE;
 		return false;
 	}
 
@@ -7231,7 +7274,7 @@ bool FsSimulation::IsObjectVisible(FsExistence* obj, const ActualViewMode& actua
     //     objPosInCamSpace.z()
     //
     // angular offset (x): x = atan2(boundingBoxDiag, abs(objPosInCamSpace.z()))
-	double objAngularRad = atan2(boundingBoxDiag, abs(objPosInCamSpace.z()));
+	double objAngularRad = atan2(YsGreatestOf((boxMax).GetLength(), (boxMin).GetLength(),0.00), objDistToCam); //Must check both directions in case of offset center i.e. towers	
 
     //compute view angles from camera axis
     //      +X/+Y  . objPosInCamSpace
@@ -7247,12 +7290,17 @@ bool FsSimulation::IsObjectVisible(FsExistence* obj, const ActualViewMode& actua
 	double objVertViewAngle = atan2(objPosInCamSpace.y(), objPosInCamSpace.z());
 
 	//determine FOV angles based on portrait or landscape aspect ratio
-	double horizFovAngle = lastWindowWidth >= lastWindowHeight ? proj.fov : proj.fovSecondary;
-	double vertFovAngle = lastWindowWidth >= lastWindowHeight ? proj.fovSecondary : proj.fov;
+	double horizFovAngle = lastProjection->viewportDim.x() >= lastProjection->viewportDim.y() ? proj.fov : proj.fovSecondary;
+	double vertFovAngle = lastProjection->viewportDim.x() >= lastProjection->viewportDim.y() ? proj.fovSecondary : proj.fov;
 
-	//check if the object is within horizontal and vertical FOV +/- angular rad 
+	//check if the object is within horizontal and vertical FOV +/- angular rad
+	//centerCameraPerspective check accounts for additional 1/6th FOV at top edge in cockpit view
+	//temporary fudge factor 0.9 on negative vertical to bandaid tall tower edge cases
 	bool objIsInFov = objHorizViewAngle >= -horizFovAngle - objAngularRad && objHorizViewAngle <= horizFovAngle + objAngularRad &&
-		objVertViewAngle >= -vertFovAngle - objAngularRad && objVertViewAngle <= vertFovAngle + objAngularRad;
+		0.9*objVertViewAngle >= -vertFovAngle - objAngularRad && objVertViewAngle <= vertFovAngle * (1.67 - 0.67 * cfgPtr->centerCameraPerspective) + objAngularRad;
+
+	obj->isSubpixel = YSFALSE;
+	if (objIsInFov == true) { obj->isOnScreen = YSTRUE; }
 
 	return objIsInFov;
 }
@@ -7314,13 +7362,21 @@ void FsSimulation::SimDrawGround(const ActualViewMode &actualViewMode,const FsPr
 		}
 	}
 
+	double colorScale;
+	if (GetEnvironment() == FSDAYLIGHT)
+	{
+		colorScale = 1.0;
+	}
+	else {
+		colorScale = 0.1;
+	}
 	FsAircraftCarrierProperty::BeginDrawArrestingWire();
 	for(int i=0; i<aircraftCarrierList.GetN(); i++)
 	{
 		if(aircraftCarrierList[i]->IsAlive()==YSTRUE)
 		{
 			aircraftCarrierList[i]->Prop().GetAircraftCarrierProperty()->DrawBridge(viewMat);
-			aircraftCarrierList[i]->Prop().GetAircraftCarrierProperty()->DrawArrestingWire();
+			aircraftCarrierList[i]->Prop().GetAircraftCarrierProperty()->DrawArrestingWire(colorScale);
 		}
 	}
 	FsAircraftCarrierProperty::EndDrawArrestingWire();
@@ -7330,13 +7386,22 @@ void FsSimulation::SimDrawAirplaneVaporSmoke(void) const
 {
 	FsAirplane *seeker;
 	seeker=NULL;
+	double colorScale;
+	if (GetEnvironment() == FSDAYLIGHT)
+	{
+		colorScale = 1.0;
+	}
+	else {
+		colorScale = 0.1;
+	}
+
 	while((seeker=FindNextAirplane(seeker))!=NULL)
 	{
 		if(seeker->IsAlive()==YSTRUE)
 		{
-			seeker->DrawVapor(currentTime,0.5,4,cfgPtr->drawTransparentVapor);
+			seeker->DrawVapor(currentTime,0.5,4,cfgPtr->drawTransparentVapor, colorScale);
 		}
-		if(YSTRUE!=cfgPtr->useParticle)
+		if(cfgPtr->smkType != FSSMKPARTICLE)
 		{
 			seeker->DrawSmoke(currentTime,cfgPtr->smkRemainTime,cfgPtr->smkType,cfgPtr->smkStep,cfgPtr->drawTransparentSmoke);
 		}
@@ -7347,7 +7412,7 @@ void FsSimulation::SimDrawField(const ActualViewMode &actualViewMode,const class
 {
 	field.DrawVisual(actualViewMode.viewPoint,actualViewMode.viewAttitude,proj.GetMatrix(),YSFALSE, cfgPtr->useOpenGlGroundTexture); // forShadowMap=YSFALSE
 
-	if(cfgPtr->drawCloud==YSTRUE && env!=FSNIGHT)
+	if(cfgPtr->cloudType == FSCLOUDFLAT && env!=FSNIGHT)
 	{
 		cloud->Draw();
 	}
@@ -7857,7 +7922,7 @@ void FsSimulation::SimDrawForeground(const ActualViewMode &actualViewMode,const 
 
 			sx/=2;
 
-			const double percent=YsGreater(0.0,100.0*(double)playerPlane->Prop().GetDamageTolerance()/(double)playerPlane->GetDefaultDamageTolerance());
+			const double percent=YsGreater(0.0,100.0*(double)playerPlane->Prop().GetCurrentHealth()/(double)playerPlane->GetDefaultHealth());
 
 			YsColor col;
 			if(50.0<percent)
@@ -9161,7 +9226,7 @@ void FsSimulation::SimPlayTimedEvent(const double &ctime)
 			case FSEVENT_PLAYEROBJCHANGE:
 				{
 					const FsExistence *newPlayer=FindObject(simEvent->eventList[i].objKey);
-					if(NULL!=newPlayer)
+					if(NULL!=newPlayer && GetPlayerObject()->isPlayingRecord == YSTRUE)
 					{
 						SetPlayerObject(newPlayer,YSFALSE);  // <- YSFALSE: Should not record.
 					}
@@ -9752,12 +9817,28 @@ void FsSimulation::GetProjection(FsProjection &prj,const ActualViewMode &actualV
 {
 	int wid, hei;
 	const FsAirplane *playerPlane;
+	playerPlane = GetPlayerAirplane();
 
 	FsGetDrawingAreaSize(wid,hei);
+	YsVec2i drawingArea(wid, hei);
 
-	playerPlane = GetPlayerAirplane();
-	
-	if(cfgPtr->centerCameraPerspective == YSFALSE && NULL != playerPlane)
+	if (FsIsMainWindowActive() == YSFALSE)
+	{
+		if (FsIsSubWindowActive(0) == YSTRUE)
+		{
+			lastProjection = &lastProjSubWindow1;
+		}
+		else if (FsIsSubWindowActive(1) == YSTRUE)
+		{
+			lastProjection = &lastProjSubWindow2;
+		}
+	}
+	else
+	{
+		lastProjection = &lastProjMainWindow;
+	}
+
+	if(actualViewMode.centerThisCamera == YSFALSE && NULL != playerPlane)
 	{
 		const YsVec2 scrnCen = playerPlane->Prop().GetScreenCenter();
 		prj.cx = (int)((double)wid * (1.0 + scrnCen.x()) / 2.0);
@@ -9769,11 +9850,10 @@ void FsSimulation::GetProjection(FsProjection &prj,const ActualViewMode &actualV
 		prj.cy = hei / 2;
 	}
 
-	if (wid != lastWindowWidth || hei != lastWindowHeight || viewMagUser != lastViewMagUser)
+	if (drawingArea != lastProjection->viewportDim || viewMagUser != lastViewMagUser || actualViewMode.viewMagFix != lastProjection->viewMagFix)
 	{
-		lastWindowWidth = wid;
-		lastWindowHeight = hei;
 		lastViewMagUser = viewMagUser;
+		prj.viewMagFix = actualViewMode.viewMagFix;
 
 		prj.fovInPixels = YsGreater(wid / 2, hei / 2);  // 2010/07/05 It was ...,prj.cx,prj.cy);
 
@@ -9791,22 +9871,22 @@ void FsSimulation::GetProjection(FsProjection &prj,const ActualViewMode &actualV
 
 		prj.UncacheMatrix();
 
-		lastProjection = prj;
+		*lastProjection = prj;
 	}
 	else
 	{
-		prj.fovInPixels = lastProjection.fovInPixels;
-		prj.prjMode = lastProjection.prjMode;
-		prj.prjPlnDist = lastProjection.prjPlnDist;
-		prj.tanFov = lastProjection.tanFov;
-		prj.tanFovSecondary = lastProjection.tanFovSecondary;
-		prj.fov = lastProjection.fov;
-		prj.fovSecondary = lastProjection.fovSecondary;
-		prj.viewportDim.Set(lastWindowWidth, lastWindowHeight);
-		prj.nearz = lastProjection.nearz;
-		prj.farz = lastProjection.farz;
+		prj.fovInPixels = lastProjection->fovInPixels;
+		prj.prjMode = lastProjection->prjMode;
+		prj.prjPlnDist = lastProjection->prjPlnDist;
+		prj.tanFov = lastProjection->tanFov;
+		prj.tanFovSecondary = lastProjection->tanFovSecondary;
+		prj.fov = lastProjection->fov;
+		prj.fovSecondary = lastProjection->fovSecondary;
+		prj.viewportDim.Set(wid, hei);
+		prj.nearz = lastProjection->nearz;
+		prj.farz = lastProjection->farz;
+		prj.viewMagFix = lastProjection->viewMagFix;
 	}
-
 	
 }
 
@@ -9842,6 +9922,8 @@ void FsSimulation::GetStandardProjection(class FsProjection &prj)
 
 	prj.nearz=0.1;
 	prj.farz=20000.0;
+
+	prj.viewMagFix = 1.0;
 
 	prj.UncacheMatrix();
 }
@@ -10348,6 +10430,7 @@ void FsSimulation::SimDecideViewpoint(ActualViewMode &actualViewMode,FSVIEWMODE 
 	actualViewMode.viewMagFix=1.0;       // by Default
 	actualViewMode.actualViewHdg=userInput.viewHdg;  // by Default
 	actualViewMode.actualViewPch=userInput.viewPch;  // by Default
+	actualViewMode.centerThisCamera = YSTRUE; //default to centered, overwrite where required
 
 	if(mode==FSGHOSTVIEW)
 	{
@@ -10397,6 +10480,7 @@ void FsSimulation::SimDecideViewpoint_Air(ActualViewMode &actualViewMode,FSVIEWM
 	case FSCOCKPITVIEW:
 		if(playerPlane->Prop().IsActive()==YSTRUE || playerPlane->Prop().IsAlive()==YSFALSE)
 		{
+			actualViewMode.centerThisCamera = cfgPtr->centerCameraPerspective;
 			YsVec3 cock;
 			YsMatrix4x4 mat;
 			playerPlane->Prop().GetCockpitPosition(cock);
@@ -10546,7 +10630,7 @@ void FsSimulation::SimDecideViewpoint_Air(ActualViewMode &actualViewMode,FSVIEWM
 				{
 					actualViewMode.viewPoint.SetY(air->Prop().GetGroundElevation()+0.5);
 				}
-
+				
 				return;
 			}
 		}
@@ -10954,6 +11038,7 @@ void FsSimulation::SimDecideViewpoint_Gnd(ActualViewMode &actualViewMode,FSVIEWM
 
 			actualViewMode.viewPoint=playerGround->GetMatrix()*cock;
 			actualViewMode.viewAttitude=playerGround->GetAttitude();
+			actualViewMode.centerThisCamera = cfgPtr->centerCameraPerspective;
 
 			const YsAtt3 &neutAtt=YsZeroAtt(); // Will be added.
 
@@ -11175,6 +11260,7 @@ void FsSimulation::SimDecideViewpoint_Common(ActualViewMode &actualViewMode,FSVI
 	case FSADDITIONALAIRPLANEVIEW:
 		if(playerObj!=NULL)
 		{
+			actualViewMode.centerThisCamera = cfgPtr->centerCameraPerspective;
 			const FsAdditionalViewpoint *vp;
 			vp=playerObj->GetAdditionalView(mainWindowAdditionalAirplaneViewId);
 			if(vp!=NULL)
@@ -12295,7 +12381,7 @@ void FsSimulation::ViewingControl(FSBUTTONFUNCTION fnc,FSUSERCONTROL userControl
 					}
 					if(next->IsAlive()==YSTRUE)
 					{
-						SetPlayerAirplane(next);
+						SetPlayerAirplane(next, YSFALSE);
 						break;
 					}
 				}
@@ -12378,21 +12464,33 @@ void FsSimulation::ViewingControl(FSBUTTONFUNCTION fnc,FSUSERCONTROL userControl
 		}
 		break;
 	case FSBTF_OUTSIDEPLAYERVIEW2:
-	case FSBTF_OUTSIDEPLAYERVIEW3:
-		if(FSOUTSIDEPLAYER2!=mainWindowViewmode && FSOUTSIDEPLAYER3!=mainWindowViewmode)
+		if (mainWindowViewmode != FSOUTSIDEPLAYER2)
 		{
 			relViewAtt.SetB(0.0);
-			focusAir=GetPlayerAirplane();
-		}
-
-		if(FSOUTSIDEPLAYER2==mainWindowViewmode)
-		{
-			mainWindowViewmode=FSOUTSIDEPLAYER3;
+			focusAir = GetPlayerAirplane();
+			relViewDist = 2.0;
+			mainWindowViewmode = FSOUTSIDEPLAYER2;
 		}
 		else
 		{
-			mainWindowViewmode=FSOUTSIDEPLAYER2;
+			relViewDist *= 2;
+			if (relViewDist > 8.0) { relViewDist = 1.0; }
 		}
+		break;
+	case FSBTF_OUTSIDEPLAYERVIEW3:
+		if (mainWindowViewmode != FSOUTSIDEPLAYER3)
+		{
+			relViewAtt.SetB(0.0);
+			focusAir = GetPlayerAirplane();
+			relViewDist = 2.0;
+			mainWindowViewmode = FSOUTSIDEPLAYER3;
+		}
+		else
+		{
+			relViewDist *= 2;
+			if (relViewDist > 8.0) { relViewDist = 1.0; }
+		}
+
 		break;
 	case FSBTF_GHOSTVIEW:
 		{
@@ -12520,15 +12618,15 @@ double FsSimulation::PassedTime(void)  // <- This function must wait at least 0.
 		lastTime=clk;
 	}
 	double passed=(double)(clk-lastTime)/1000.0;
-	if(passed<0.010)
-	{
-		FsSleep(5);  // Let's give 10ms rest
-	}
-	while(passed<0.010 && lastTime<=clk)
-	{
-		clk=FsSubSecondTimer();
-		passed=(double)(clk-lastTime)/1000.0;
-	}
+	//if(passed<0.010)
+	//{
+	//	FsSleep(5);  // Let's give 10ms rest
+	//}
+	//while(passed<0.010 && lastTime<=clk)
+	//{
+	//	clk=FsSubSecondTimer();
+	//	passed=(double)(clk-lastTime)/1000.0;
+	//}
 
 	if(clk<lastTime)  // Underflow took place.
 	{
@@ -12538,6 +12636,16 @@ double FsSimulation::PassedTime(void)  // <- This function must wait at least 0.
 	lastTime=clk;
 
 	return passed;
+}
+
+double FsSimulation::RealTimeStep(void)
+{
+	unsigned long long current = FsSubSecondTimer();
+	realTimeStep = (double)(current - lastRealTime)/1000;
+
+	lastRealTime = current;
+	currentRealTime = (double)current / 1000;
+	return realTimeStep;
 }
 
 YSRESULT FsSimulation::SetAllowedWeaponType(unsigned int allowedWeaponType)

@@ -21,7 +21,8 @@ protected:
 	mutable YsArray <FsRotatingTurretStateSave> staSavedTurret;
 	YSBOOL staGunnerFirePermission;
 
-	int staDamageTolerance;
+	int staCurrentHealth;
+	int staStrength;
 
 	class FsGround *staOnThisCarrier;
 
@@ -98,8 +99,9 @@ public:
 	unsigned int EncodeTurretState(unsigned char dat[],int idOnSvr,const int netCmd) const; // netCmd can be FSNETCMD_AIRTURRETSTATE or FSNETCMD_GNDTURRETSTATE
 	YSRESULT DecodeTurretState(unsigned char dat[],unsigned int packetLength);
 
-	void SetDamageTolerance(int t);
-	int GetDamageTolerance(void) const;
+	void SetCurrentHealth(int t);
+	int GetCurrentHealth(void) const;
+	int GetStrength(void) const;
 
 	YSBOOL IsOnCarrier(void) const;
 	class FsGround *OnThisCarrier(void) const;

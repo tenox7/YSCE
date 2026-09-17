@@ -329,6 +329,42 @@ YSRESULT FsAircraftCarrierProperty::UnloadGround(FsGround *gnd)
 	return YSERR;
 }
 
+YSRESULT FsAircraftCarrierProperty::UnloadAllCargo(void)
+{
+	FsAircraftCarrierProperty* carrier = this;
+	for (int i = 0; i < airList.GetN(); i++)
+	{
+		FsAirplane *air = airList[i];
+		if (air->Prop().OnThisCarrier()->Prop().GetAircraftCarrierProperty() == carrier)
+		{
+			YsVec3 shipSpeed, airSpeed;
+			belongTo->GetVelocity(shipSpeed);
+			air->Prop().GetVelocity(airSpeed);
+			airSpeed += shipSpeed;
+			air->Prop().SetVelocity(airSpeed);
+			airList.Delete(i);
+
+			air->Prop().AfterUnloadedFromCarrier();
+		}
+	}
+
+	for (int i = 0; i < gndList.GetN(); i++)
+	{
+		FsGround *gnd = gndList[i];
+		if (gnd->Prop().OnThisCarrier()->Prop().GetAircraftCarrierProperty() == carrier)
+		{
+			YsVec3 shipSpeed, gndSpeed;
+			belongTo->GetVelocity(shipSpeed);
+			gnd->Prop().GetVelocity(gndSpeed);
+			gndSpeed += shipSpeed;
+			gnd->Prop().SetVelocity(gndSpeed);
+			gndList.DeleteBySwapping(i);
+			gnd->Prop().AfterUnloadedFromCarrier();
+		}
+	}
+	return YSOK;
+}
+
 YSBOOL FsAircraftCarrierProperty::IsAirplaneLoaded(const FsAirplane *air) const
 {
 	for(int i=0; i<airList.GetN(); i++)
@@ -391,22 +427,26 @@ YSBOOL FsAircraftCarrierProperty::LandedOnTheDeck
     (const YsVec3 &prv,const YsVec3 &now,
      const YsVec3 &gear1,const YsVec3 &gear2,const YsVec3 &gear3) const
 {
-	YsVec3 deckNom;
-	double deckHeight;
-	deckHeight=GetDeckHeightAndNormal(deckNom,now);
+	YsVec3 deckNom1;
+	YsVec3 deckNom2;
+	YsVec3 deckNom3;
+	double g1deckHeight = GetDeckHeightAndNormal(deckNom1, gear1);
+	double g2deckHeight = GetDeckHeightAndNormal(deckNom2, gear2);
+	double g3deckHeight = GetDeckHeightAndNormal(deckNom3, gear3);
 
 	// At least one gear must be touching the deck
-	if(gear1.y()<=deckHeight+YsTolerance ||
-	   gear2.y()<=deckHeight+YsTolerance ||
-	   gear3.y()<=deckHeight+YsTolerance)
+	if(gear1.y()<=g1deckHeight+YsTolerance ||
+	   gear2.y()<=g2deckHeight+YsTolerance ||
+	   gear3.y()<=g3deckHeight+YsTolerance)
 	{
 		// Did it approach from the top of the deck?
 		// (Previously higher than deck and Currently descending)
-		if(prv.y()>=deckHeight+YsTolerance && now.y()<=prv.y())
+		if(now.y()<=prv.y())
 		{
 			// Now above the deck
-			if(IsOnDeck(now)==YSTRUE)
+			if(IsOnDeck(gear1)==YSTRUE || IsOnDeck(gear2) == YSTRUE || IsOnDeck(gear3) == YSTRUE)
 			{
+				printf("\n");
 				return YSTRUE;
 			}
 		}
@@ -877,6 +917,22 @@ YSRESULT FsGroundProperty::LoadProperty(const wchar_t fn[],YsWString &aircraftCa
 		char dat[256];
 		while(fgets(dat,256,fp)!=NULL)
 		{
+			char datCaps[256];
+			strncpy(datCaps, dat, 8);
+			YsCapitalize(datCaps);
+
+			if (strncmp(datCaps, "WPNSHAPE", 8) == 0 || strncmp(datCaps, "CARRIER", 7))  //Protect included filepaths from capitalization 20250904
+			{
+				for (int c = 0; c < 8; c++)
+				{
+					dat[c] = datCaps[c];
+				}
+			}
+			else
+			{
+				YsCapitalize(dat); //Stop throwing errors if argument case isn't capitals
+			}
+
 			if(strncmp(dat,"CARRIER",7)==0)
 			{
 				int ac;
@@ -1590,20 +1646,82 @@ YSBOOL FsGroundProperty::FireMissile
 		mis=mis+samMount;
 		mis=mis+staPosition;
 
-		bul.Fire(ct,
-		         chSAMType,
-		         mis,
-		         staSamAim,
-		         0.0,
-		         340.0*3.0,
-		         chSAMRange,
-		         YsDegToRad(180.0),
-		         GetSAMRadarAngle(),
-		         12,
-		         own,
-		         targetKey, // <- Locked On Target
-		         YSTRUE,
-		         YSTRUE);
+
+
+		switch (chSAMType)
+		{
+			default:
+				break;
+			case FSWEAPON_AIM9:
+			case FSWEAPON_AIM9X:
+			{
+				bul.Fire(ct,
+					chSAMType,
+					mis,
+					staSamAim,
+					0.0,
+					1020,
+					chSAMRange,
+					YsPi / 2.0,
+					YsPi / 6.0,
+					12,
+					own,
+					targetKey, // <- Locked On Target
+					YSTRUE, YSTRUE);
+			}
+			break;
+			case FSWEAPON_AGM65:
+			{
+				bul.Fire(ct,
+					chSAMType,
+					mis,
+					staSamAim,
+					0.0,
+					340.0,
+					chSAMRange,
+					YsPi / 2.0,
+					YsPi / 9.0,
+					12,
+					own,
+					targetKey,
+					YSTRUE, YSTRUE);
+			}
+			break;
+			case FSWEAPON_ROCKET:
+			{
+				bul.Fire(ct,
+					chSAMType,
+					mis,
+					staSamAim,
+					0.0,
+					800.0,
+					chSAMRange,
+					YsPi / 2.0,
+					YsPi / 4.0,
+					10,
+					own,
+					targetKey,
+					YSTRUE, YSTRUE);
+			}
+			break;
+			case FSWEAPON_AIM120:
+			{
+				bul.Fire(ct,
+					chSAMType,
+					mis,
+					staSamAim,
+					0.0,
+					1360.0,
+					chSAMRange,
+					YsPi / 3.0,
+					YsPi / 6.0,
+					12,
+					own,
+					targetKey,
+					YSTRUE, YSTRUE);
+			}
+			break;
+		}
 
 		staSAM--;
 		if(staSamReloadCount>0)
@@ -1642,12 +1760,16 @@ YSBOOL FsGroundProperty::GetDamage(YSBOOL &killed,int dmg)
 	{
 		if(dmg>chMinimumDamage)
 		{
-			staDamageTolerance-=dmg;
-			if(staDamageTolerance<=0)
+			staCurrentHealth-=dmg;
+			if(staCurrentHealth<=0)
 			{
 				staState=FSGNDDEAD;
-				staDamageTolerance=0;
+				staCurrentHealth=0;
 				killed=YSTRUE;
+				if (isAircraftCarrier == YSTRUE)
+				{
+					GetAircraftCarrierProperty()->UnloadAllCargo();
+				}
 			}
 			return YSTRUE;
 		}
@@ -1723,7 +1845,7 @@ const YsVec3 &FsGroundProperty::GetCannonMountPoint(void) const
 
 YSBOOL FsGroundProperty::IsAlive(void) const
 {
-	if(staState!=FSGNDDEAD && staDamageTolerance>0)
+	if(staState!=FSGNDDEAD && staCurrentHealth>0)
 	{
 		return YSTRUE;
 	}
@@ -1995,7 +2117,7 @@ void FsGroundProperty::CopyState(const FsGroundProperty &from)
 	staFiringAaa=from.staFiringAaa;
 	staFiringCannon=from.staFiringCannon;
 
-	staDamageTolerance=from.staDamageTolerance;
+	staCurrentHealth=from.staCurrentHealth;
 
 	staSpeed=from.staSpeed;
 	staRotation=from.staRotation;
@@ -2185,7 +2307,7 @@ void FsGroundProperty::WriteRecord(FsGroundRecord &rec) const
 	rec.b=float(staAttitude.b());
 
 	rec.state=(unsigned char)staState;
-	rec.dmgTolerance=(unsigned char)staDamageTolerance;
+	rec.curHealth=(unsigned char)staCurrentHealth;
 
 	rec.steering=(char)YsBound((int)(staSteering*127.0),-128,127);
 	rec.leftDoor=(unsigned char)YsBound <unsigned int> ((unsigned int)(staLeftDoor*255.0),0,255);
@@ -2250,7 +2372,7 @@ void FsGroundProperty::ReadbackRecord(FsGroundRecord &rec,const double &dt,const
 
 
 	staState=FSGNDSTATE(rec.state);
-	staDamageTolerance=rec.dmgTolerance;
+	staCurrentHealth=rec.curHealth;
 	staSpeed.Set(0.0,0.0,velocity);
 
 	staAaaAim.Set(rec.aaaAimh,rec.aaaAimp,rec.aaaAimb);
@@ -2286,7 +2408,7 @@ void FsGroundProperty::CaptureState(YsArray <YsString> &stateStringArray) const
 	stateStringArray.GetEnd().Printf("ATTITUDE %.2lfrad %.2lfrad %.2lfrad",staAttitude.h(),staAttitude.p(),staAttitude.b());
 
 	stateStringArray.Increment();
-	stateStringArray.GetEnd().Printf("STRENGTH %d",staDamageTolerance);
+	stateStringArray.GetEnd().Printf("STRENGTH %d",staCurrentHealth);
 
 	stateStringArray.Increment();
 	stateStringArray.GetEnd().Printf("INITIGUN %d",staGunBullet);
@@ -2616,7 +2738,8 @@ YSRESULT FsGroundProperty::SendCommand(const char in[])
 				break;
 			case 3: //"STRENGTH",
 				res=YSOK;
-				staDamageTolerance=atoi(args[1]);
+				staCurrentHealth=atoi(args[1]);
+				staStrength = atoi(args[1]);
 				break;
 			case 4: //"INITIGUN",
 				staGunBullet=atoi(args[1]);
@@ -3427,7 +3550,7 @@ unsigned FsGroundProperty::NetworkEncode(unsigned char dat[],int idOnSvr,const d
 	FsPushInt(ptr,FSNETCMD_GROUNDSTATE);             // 4 bytes (Total  4 bytes)
 	FsPushFloat(ptr,(float)currentTime);             // 4 bytes (Total  8 bytes)
 	FsPushInt  (ptr,idOnSvr);                        // 4 bytes (Total 12 bytes)
-	FsPushShort(ptr,(short)staDamageTolerance);     // 2 bytes (Total 14 bytes)
+	FsPushShort(ptr,(short)staCurrentHealth);     // 2 bytes (Total 14 bytes)
 
 	if(shortFormat==YSTRUE)
 	{
@@ -3531,7 +3654,7 @@ void FsGroundProperty::NetworkDecode(
 		short version;
 
 		FsPopInt(ptr); // Skip idOnSvr
-		staDamageTolerance=FsPopShort(ptr);
+		staCurrentHealth=FsPopShort(ptr);
 		version=FsPopShort(ptr);
 
 		if(version==1)  // Short Format

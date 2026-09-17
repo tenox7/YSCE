@@ -96,10 +96,12 @@ private:
 
 	YsArray <std::shared_ptr <FsSimExtensionBase> > addOnList;
 
-	FsProjection lastProjection;
-	int lastWindowWidth;
-	int lastWindowHeight;
+	FsProjection *lastProjection;
+	FsProjection lastProjMainWindow;
+	FsProjection lastProjSubWindow1;
+	FsProjection lastProjSubWindow2;
 	double lastViewMagUser;
+	double lastViewMagFix;
 
 public:
 	enum FSSIMULATIONSTATE
@@ -295,6 +297,7 @@ protected:
 	int escKeyCount;
 	YSBOOL pause;
 	YSBOOL canContinue;
+	YSBOOL playingReplay;
 
 	FSENVIRONMENT env;
 	YsColor fogColor;
@@ -312,6 +315,7 @@ protected:
 		double viewMagFix;
 		YSBOOL isViewPointInCloud;
 		double fogVisibility;
+		YSBOOL centerThisCamera;
 
 		double viewTargetDist;
 
@@ -332,6 +336,7 @@ protected:
 	const FsGround *focusGnd;
 	int towerViewId;
 	YsVec3 towerViewPos;
+	
 
 	ActualViewMode mainWindowActualViewMode;
 	ActualViewMode subWindowActualViewMode[FsMaxNumSubWindow];
@@ -362,6 +367,9 @@ protected:
 	class FsGroundSky *groundSky;
 
 	unsigned long long lastTime;
+	unsigned long long lastRealTime;
+	double currentRealTime;
+	double realTimeStep;
 
 	FsJoystick pJoy[FsMaxNumJoystick];
 	FsFlightControl userInput;
@@ -842,6 +850,7 @@ protected:
 	YsArray <const FsAirplane *> MakeAvailableViewTargetAirplane(YSBOOL includePlayer) const;
 
 	double PassedTime(void);
+	double RealTimeStep(void);
 
 	void SimMove(const double &deltaTime);
 	void SimCheckTailStrike(void);

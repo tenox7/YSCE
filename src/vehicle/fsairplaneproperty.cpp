@@ -665,7 +665,7 @@ const double &FsAirplaneProperty::GetVariableGeometryWingState(void) const
 
 void FsAirplaneProperty::Crash(FSDIEDOF diedOf)
 {
-	staDamageTolerance=0;
+	staCurrentHealth=0;
 	SetState(FSDEAD,diedOf);
 	printf("Died of: %d\n",diedOf);
 	printf("Position: %s\n",GetPosition().Txt());
@@ -734,13 +734,82 @@ YSRESULT FsAirplaneProperty::LoadProperty(const wchar_t fn[])
 	YsArray <YsString,8> initLoading;
 	YsString str;
 
-
-
 	fp=YsFileIO::Fopen(fn,"r");
+
+	//Check common .lst filepath case issues (user/User, dat/Dat/DAT) to stop Linux freaking out
+	if (fp == NULL) //Try user instead of User
+	{
+		YsWString propPathModified;
+		propPathModified.Append(fn);
+
+		if (fn[2] == L'U')
+		{
+			propPathModified.Set(2, L'u');
+		}
+
+		fp = YsFileIO::Fopen(propPathModified, "r");
+	}
+
+	if (fp == NULL)  //Try dat
+	{
+		YsWString propPathModified;
+		propPathModified.Append(fn);
+		wchar_t test;
+		propPathModified.resize(propPathModified.size() - 3);
+
+		propPathModified.Append(L'd');
+		propPathModified.Append(L'a');
+		propPathModified.Append(L't');
+
+		fp = YsFileIO::Fopen(propPathModified, "r");
+	}
+
+	if (fp == NULL)  //Try Dat
+	{
+		YsWString propPathModified;
+		propPathModified.Append(fn);
+		wchar_t test;
+		propPathModified.resize(propPathModified.size() - 3);
+
+		propPathModified.Append(L'D');
+		propPathModified.Append(L'a');
+		propPathModified.Append(L't');
+
+		fp = YsFileIO::Fopen(propPathModified, "r");
+	}
+
+	if (fp == NULL)  //Try DAT
+	{
+		YsWString propPathModified;
+		propPathModified.Append(fn);
+		propPathModified.resize(propPathModified.size() - 3);
+
+		propPathModified.Append(L'D');
+		propPathModified.Append(L'A');
+		propPathModified.Append(L'T');
+
+		fp = YsFileIO::Fopen(propPathModified, "r");
+	}
 	if(fp!=NULL)
 	{
 		while(fgets(dat,256,fp)!=NULL)
 		{
+			char datCaps[256];
+			strncpy(datCaps, dat, 8);
+			YsCapitalize(datCaps);
+
+			if (strncmp(datCaps, "INSTPANL", 8) == 0 || strncmp(datCaps, "WPNSHAPE", 8) == 0 || strncmp(datCaps, "CARRIER", 7))  //Protect included filepaths from capitalization 20250904
+			{
+				for (int c = 0; c < 8; c++)
+				{
+					dat[c] = datCaps[c];
+				}
+			}
+			else
+			{
+				YsCapitalize(dat); //Stop throwing errors if argument case isn't capitals
+			}
+
 			if(dat[0]=='I' && dat[1]=='N' && dat[2]=='I' && dat[3]=='T')
 			{
 				if(strncmp(dat+4,"IAAM",4)==0 || strncmp(dat+4,"IAGM",4)==0 ||
@@ -1221,8 +1290,13 @@ const double FsAirplaneProperty::GetClimbRatio(void) const // <- For some reason
 	return staVelocity.y();
 }
 
-YSBOOL FsAirplaneProperty::CheckTouchDownAndLayOnGround(double &gDistance)
+YSBOOL FsAirplaneProperty::CheckTouchDownAndLayOnGround(double& gDistance)
 {
+	if (staGear < 0.5)
+	{
+		return YSFALSE;
+	}
+	
 	YsVec3 nose,left,right;
 	YsVec3 nosevc,leftvc,rightvc;
 	YsVec3 nosert,leftrt,rightrt;
@@ -1680,7 +1754,7 @@ void FsAirplaneProperty::CalculateForce(void)
 	{
 		const double normalForce=-staGndNormal*(staTotalGravityForce+staTotalAerodynamicForce);
 		const double tireFrictionForce=(0.0<normalForce ? normalForce*chTireFrictionConst : 0.0);
-		const double brakingForce=(chClass==FSCL_AIRPLANE ? CalculateForceByBrake(staBrake) : CalculateForceByBrake(1.0));
+		const double brakingForce=CalculateForceByBrake(staBrake);
 
 		const double frictionForce=YsGreater(tireFrictionForce,brakingForce);
 
@@ -1766,9 +1840,7 @@ void FsAirplaneProperty::CalculateForce(void)
 
 void FsAirplaneProperty::CalculateTranslation(const double &dt)
 {
-	if(staVHorizontal<FsMinimumAirspeed &&
-	   (staBrake>=0.9 || chClass==FSCL_HELICOPTER) &&
-	   IsOnGround()==YSTRUE)
+	if(staVHorizontal<FsMinimumAirspeed &&staBrake>=0.9 && IsOnGround()==YSTRUE)
 	{
 		staVelocity=staVelocity+(staTotalAerodynamicForce+staTotalGravityForce)/GetTotalWeight()*dt;
 		staVelocity.SetX(0.0);
@@ -1825,6 +1897,10 @@ void FsAirplaneProperty::CalculateRotationalAcceleration(void)
 		else // if(chClass==FSCL_HELICOPTER)
 		{
 			staDVPitch=0.0;
+			if (IsOnGround() == YSTRUE) //Jankish fix for helicopter uncommanded pitch on touchdown
+			{
+				staVPitch = 0.0;
+			}
 		}
 
 		double inputSsaCorrection;                              // 2005/10/02
@@ -1898,17 +1974,23 @@ void FsAirplaneProperty::CalculateRotationalAcceleration(void)
 				effectiveness*=t;
 			}
 
-			if(fabs(staVPitch)<chPostStallVPitch)
+			if(fabs(staVPitch)<chPostStallVPitch || (staVPitch > 0 && ctlDirectPitch < 0) || (staVPitch < 0 && ctlDirectPitch > 0))
 			{
 				staDVPitch+=effectiveness*chPitchManConst*(chPostStallVPitch*ctlDirectPitch-staVPitch);
 			}
-			if(fabs(staVYaw)<chPostStallVYaw)
+			if(fabs(staVYaw)<chPostStallVYaw || (staVYaw > 0 && ctlDirectYaw < 0) || (staVYaw < 0 && ctlDirectYaw > 0))
 			{
 				staDVYaw+=effectiveness*chYawManConst*(chPostStallVYaw*ctlDirectYaw-staVYaw);
 			}
-			if(fabs(staVRoll)<chPostStallVRoll)
+			if(fabs(staVRoll)<chPostStallVRoll || (staVRoll > 0 && ctlDirectRoll < 0) || (staVRoll < 0 && ctlDirectRoll > 0))
 			{
 				staDVRoll+=effectiveness*chRollManConst*(chPostStallVRoll*ctlDirectRoll-staVRoll);
+			}
+			if (chClass == FSCL_HELICOPTER)
+			{
+				staDVPitch += chPitchManConst * (chPostStallVPitch * ctlDirectPitch - staVPitch);
+				staDVYaw += chYawManConst * (chPostStallVYaw * ctlDirectYaw - staVYaw);
+				staDVYaw += chYawManConst * (chPostStallVYaw * ctlDirectYaw - staVYaw);
 			}
 		}
 	}
@@ -1951,24 +2033,33 @@ void FsAirplaneProperty::CalculateRotation(const double &dt)
 
 void FsAirplaneProperty::CalculateCarrierLanding(const double &dt,const YsArray <FsGround *> &carrierList)
 {
-	if(staOnThisCarrier==NULL)
+	YsVec3 nose, left, right;
+
+	nose = staMatrix * chWheel;
+	left = staMatrix * chMainGearL;
+	right = staMatrix * chMainGearR;
+
+	if(staOnThisCarrier == NULL)
 	{
-		YsVec3 nose,left,right;
-
-		nose=staMatrix*chWheel;
-		left=staMatrix*chMainGearL;
-		right=staMatrix*chMainGearR;
-
 		int i;
 		for(i=0; i<carrierList.GetNumItem(); i++)
 		{
-			FsAircraftCarrierProperty *prop;
-			prop=carrierList[i]->Prop().GetAircraftCarrierProperty();
-			if(prop!=NULL && prop->LandedOnTheDeck(staPPos,staPosition,nose,left,right)==YSTRUE)
+			if (carrierList[i]->IsAlive() == YSTRUE)
 			{
-				// staOnThisCarrier=carrierList[i];  This should be done from LoadAirplane
-				prop->LoadAirplane(belongTo);
-				break;
+				FsAircraftCarrierProperty* prop;
+				prop = carrierList[i]->Prop().GetAircraftCarrierProperty();
+				YsVec3 cPos = carrierList[i]->Prop().GetPosition();
+				double cRadius = carrierList[i]->Prop().GetOutsideRadius();
+				YsVec3 difference = staPosition - cPos;
+				if (difference.GetLength() < cRadius)
+				{
+					if (prop != NULL && prop->LandedOnTheDeck(staPPos, staPosition, nose, left, right) == YSTRUE)
+					{
+						// staOnThisCarrier=carrierList[i];  This should be done from LoadAirplane
+						prop->LoadAirplane(belongTo);
+						break;
+					}
+				}
 			}
 		}
 	}
@@ -1978,8 +2069,7 @@ void FsAirplaneProperty::CalculateCarrierLanding(const double &dt,const YsArray 
 		if(prop!=NULL)
 		{
 			YsVec3 deckNom;
-			if(prop->IsOnDeck(staPosition)!=YSTRUE ||
-			   prop->GetDeckHeightAndNormal(deckNom,staPosition)+GetGroundStandingHeight()+1.0<staPosition.y())  // 2003/04/08 Avoid catapult in the air
+			if((prop->IsOnDeck(nose)!=YSTRUE && prop->IsOnDeck(left) != YSTRUE && prop->IsOnDeck(right) != YSTRUE))  // 2003/04/08 Avoid catapult in the air  || prop->GetDeckHeightAndNormal(deckNom, staPosition) + GetGroundStandingHeight() + 1.0 < staPosition.y()
 			{
 				prop->UnloadAirplane(belongTo);  // <- This will call back AfterUnloadedFromCarrier, which cleans up stuffs.
 			}
@@ -2209,8 +2299,14 @@ void FsAirplaneProperty::CalculateGround(const double &dt)
 			// staVelocity.Set(0.0,staVelocity.y(),0.0); <- Before 2005/10/02
 		}
 	}
+	
+	double groTransitionAlt = 1.0;     //Small transition alt causes erroneous state changes in takeoff roll
+	if (chClass == FSCL_HELICOPTER)
+	{
+		groTransitionAlt = YsTolerance;
+	}
 
-	if(gDist>1.0 && staState!=FSDEADSPIN && staState!=FSDEADFLATSPIN)
+	if((staState == FSGROUND || staState == FSGROUNDSTATIC) && gDist>groTransitionAlt && staState!=FSDEADSPIN && staState!=FSDEADFLATSPIN)
 	{
 		SetState(FSFLYING,FSDIEDOF_NULL);
 	}
@@ -2398,7 +2494,7 @@ double FsAirplaneProperty::GetThrust(const double &thr,const double &alt,const d
 		{
 			thrust=chThrMil*thr;
 		}
-		thrust=thrust*FsGetJetEngineEfficiency(alt);
+		thrust=thrust*FsGetJetEngineEfficiency(alt + staBaseElevation);
 	}
 	else
 	{
@@ -2566,7 +2662,7 @@ void FsAirplaneProperty::ApplyControl(const FsFlightControl &ctl,unsigned int wh
 }
 
 void FsAirplaneProperty::ReadBackControl(FsFlightControl &ctl) const
-{
+	{
 	ctl.ctlGear=ctlGear;
 	ctl.ctlBrake=ctlBrake;
 	//ctl.ctlSpoiler=ctlSpoiler;
@@ -2596,6 +2692,41 @@ void FsAirplaneProperty::ReadBackControl(FsFlightControl &ctl) const
 void FsAirplaneProperty::CaptureState(YsArray <YsString> &stateStringArray) const
 {
 	// To be implemented
+}
+
+void FsAirplaneProperty::SetControlsFromFlightState(FsFlightControl& ctl)
+{
+	ctl.ctlAb = staAb;
+	ctl.ctlBombBayDoor = staBombBayDoor > 0.5 ? YSTRUE : YSFALSE;
+	ctl.ctlBrake = staBrake > 0.5 ? 1.0 : 0.0;
+	ctl.ctlElvTrim = ctlElvTrim;
+	ctl.ctlFlap = staFlap > 0.875 ? 1.0 : staFlap > 0.625 ? 0.75 : staFlap > 0.375 ? 0.5 : 0.0;
+	ctl.ctlGear = staGear > 0.5 ? 1.0 : 0.0;
+	ctl.ctlRudder = 0;
+	ctl.ctlSpoiler = staSpoiler > 0.875 ? 1.0 : staSpoiler > 0.625 ? 0.75 : staSpoiler > 0.375 ? 0.5 : 0.0;
+	ctl.ctlThrottle = staThrottle;
+	ctl.ctlThrRev = staThrRev > 0.5 ? 1.0 : 0.0;
+	ctl.ctlThrVec = staThrVec;
+	//ctl.ctlVgw = ;
+	ctl.ctlVectorMarker = YSTRUE;
+	//ctl.ctlPropeller = staPropLever[];
+	//ctl.ctlLeftDoor = ;
+	//ctl.ctlRightDoor = ;
+	//ctl.ctlRearDoor = ;
+
+	if (staTurret.GetN() > 0)
+	{
+		int i;
+		for (i = 0; i < staTurret.GetN(); i++)
+		{
+			if (chTurret[i].controlledBy == FSTURRET_CTRL_BY_PILOT)
+			{
+				ctl.ctlTurretHdg = staTurret[i].h / 3.141593;
+				ctl.ctlTurretPch = staTurret[i].p / 1.570796;
+				break;
+			}
+		}
+	}
 }
 
 unsigned FsAirplaneProperty::NetworkEncode(unsigned char dat[],int idOnSvr,const double &currentTime,YSBOOL shortFormat) const
@@ -2686,7 +2817,7 @@ unsigned FsAirplaneProperty::NetworkEncode(unsigned char dat[],int idOnSvr,const
 		   -32768<vp && vp<32768 &&
 		   -32768<vy && vy<32768 &&
 		   -128<g && g<128 &&
-		   GetDamageTolerance()<256)
+		   GetCurrentHealth()<256)
 		{
 			int version,thrVec,thrRev,bomDor;
 			thrVec=int(GetThrustVector()*255.0);
@@ -2737,7 +2868,7 @@ unsigned FsAirplaneProperty::NetworkEncode(unsigned char dat[],int idOnSvr,const
 			FsPushUnsignedChar(ptr,(unsigned char)YsSmaller(aam,255));
 			FsPushUnsignedChar(ptr,(unsigned char)YsSmaller(agm,255));
 			FsPushUnsignedChar(ptr,(unsigned char)YsSmaller(bom,255));
-			FsPushUnsignedChar(ptr,(unsigned char)YsSmaller(GetDamageTolerance(),255));
+			FsPushUnsignedChar(ptr,(unsigned char)YsSmaller(GetCurrentHealth(),255));
 
 			FsPushChar(ptr,(char)g);
 
@@ -2785,7 +2916,7 @@ unsigned FsAirplaneProperty::NetworkEncode(unsigned char dat[],int idOnSvr,const
 		FsPushShort(ptr,(short)GetSmokeOil());
 		FsPushFloat(ptr,(float)GetFuelLeft());
 		FsPushFloat(ptr,(float)staPayload);
-		FsPushShort(ptr,(short)GetDamageTolerance());
+		FsPushShort(ptr,(short)GetCurrentHealth());
 		FsPushUnsignedChar(ptr,(unsigned char)GetFlightState());
 		FsPushUnsignedChar(ptr,(unsigned char)YsBound(int(GetVariableGeometryWingState()*255.0),0,255));
 		FsPushUnsignedChar(ptr,(unsigned char)YsBound(int(GetSpoiler()*255.0),0,255));
@@ -2864,7 +2995,7 @@ void FsAirplaneProperty::NetworkDecode(FsNetReceivedAirplaneState &prevState,FsN
 		}
 		staFuelLoad=recvState.fuel;
 		staPayload= recvState.payload;
-		staDamageTolerance=recvState.life;
+		staCurrentHealth=recvState.life;
 
 		SetState(recvState.state,FSDIEDOF_NULL);
 		staVgw=recvState.vgw;
@@ -3818,9 +3949,9 @@ void FsAirplaneProperty::ControlSpeed(const double &spd,const double &dt)
 
 	if(0<chRealProp.GetN())
 	{
-		const double thr0=GetConvergentThrust(0.0,staPosition.y()+staBaseElevation,spd,YSFALSE);
-		const double thrCurrent=GetConvergentThrust(staThrottle,staPosition.y()+staBaseElevation,spd,YSFALSE);
-		const double thr1=GetConvergentThrust(1.0,staPosition.y()+staBaseElevation,spd,YSFALSE);
+		const double thr0=GetConvergentThrust(0.0,staPosition.y(),spd,YSFALSE);
+		const double thrCurrent=GetConvergentThrust(staThrottle,staPosition.y(),spd,YSFALSE);
+		const double thr1=GetConvergentThrust(1.0,staPosition.y(),spd,YSFALSE);
 
 		double throttleCorrection=0.0;
 		if(YsTolerance<refSpdCruise)
@@ -3918,7 +4049,7 @@ void FsAirplaneProperty::ControlSpeed(const double &spd,const double &dt)
 				while(thr2-thr1>0.01)
 				{
 					thrm=(thr1+thr2)/2.0;
-					if(requiredThrust<GetThrust(thrm,staPosition.y()+staBaseElevation,staV,YSFALSE))
+					if(requiredThrust<GetThrust(thrm,staPosition.y(),staV,YSFALSE))
 					{
 						thr2=thrm;
 					}
@@ -4259,7 +4390,7 @@ double FsAirplaneProperty::CalculatePropellerThrust(const double &thr,const doub
 	double rhoRef,rhoZero;
 
 	rhoRef=FsGetAirDensity(alt+staBaseElevation);
-	rhoZero=FsGetZeroAirDensity();
+	rhoZero=FsGetSeaLevelAirDensity();
 	if(chPropV0<vel)
 	{
 		double power;
@@ -6570,26 +6701,26 @@ YSBOOL FsAirplaneProperty::GetDamage(YSBOOL &killed,int dmg,FSDIEDOF diedOf)
 	killed=YSFALSE;
 	if(IsActive()==YSTRUE)
 	{
-		staDamageTolerance-=dmg;
-		if(staDamageTolerance<=0)
+		staCurrentHealth-=dmg;
+		if(staCurrentHealth<=0)
 		{
 			switch((rand()%700)/100)
 			{
 			case 0:
 				SetState(FSDEAD,diedOf);
-				staDamageTolerance=0;
+				staCurrentHealth=0;
 				break;
 			case 1:
 			case 2:
 			case 3:
 				SetState(FSDEADSPIN,diedOf);
-				staDamageTolerance=1;
+				staCurrentHealth =1;
 				break;
 			case 4:
 			case 5:
 			case 6:
 				SetState(FSDEADFLATSPIN,diedOf);
-				staDamageTolerance=1;
+				staCurrentHealth=1;
 				break;
 			}
 			killed=YSTRUE;
@@ -6632,6 +6763,24 @@ YSRESULT FsAirplaneProperty::ToggleLandingLight(void)
 	return YSOK;
 }
 
+YSRESULT FsAirplaneProperty::TurnOnAllLight(void)
+{
+	staBeacon = YSTRUE;
+	staNavLight = staBeacon;
+	staStrobe = staBeacon;
+	staLandingLight = staBeacon;
+	return YSOK;
+}
+
+YSRESULT FsAirplaneProperty::TurnOffAllLight(void)
+{
+	staBeacon = YSFALSE;
+	staNavLight = staBeacon;
+	staStrobe = staBeacon;
+	staLandingLight = staBeacon;
+	return YSOK;
+}
+
 int FsAirplaneProperty::LoadWeaponToSlot(FSWEAPONTYPE wpnType,int n)
 {
 	if(FSWEAPON_FLARE_INTERNAL==wpnType)
@@ -6666,10 +6815,10 @@ int FsAirplaneProperty::AddWeaponToSlot(const FSWEAPONTYPE wpnType,const int n) 
 				{
 					if(0==staWeaponSlot[i].nLoaded)
 					{
-						const double actualLoad=(double)YsSmaller <double> (toLoad,chWeaponSlot[i].nSubLoad[wpnType]);
+						//const double actualLoad=(double)YsSmaller <double> (toLoad,chWeaponSlot[i].nSubLoad[wpnType]); //toLoad is only being updated by the value of the first listed tank for some reason
 						staWeaponSlot[i].wpnType=FSWEAPON_FUELTANK;
 						staWeaponSlot[i].nLoaded=1;
-						staWeaponSlot[i].fuelLoaded=actualLoad;
+						staWeaponSlot[i].fuelLoaded = chWeaponSlot[i].nSubLoad[wpnType]; //Set fuel tanks to full when loading instead of limiting by actualLoad. Only time tanks load partway is LOADWEPN FUEL
 						nLoaded=1;
 						toLoad=0;
 						break;
@@ -7684,7 +7833,7 @@ YSRESULT FsAirplaneProperty::EncodeProperty(
 	MakeShortFormat(str,cmdStr,netVersion);
 	cmd.Append(str);
 
-	sprintf(cmdStr,"STRENGTH %d",(int)staDamageTolerance);
+	sprintf(cmdStr,"STRENGTH %d",(int)staCurrentHealth);
 	MakeShortFormat(str,cmdStr,netVersion);
 	cmd.Append(str);
 
@@ -8299,6 +8448,15 @@ YSRESULT FsAirplaneProperty::SendCommand(const char in[])
 			cmd=keyWordList.GetId("HRDPOINT");     //
 		}                                          //
 
+		//Handle SUBSTNAM in IDENTIFY line because a lot of addons do it
+		if (cmd == 56 && av[2] != NULL && av[3] != NULL)
+		{
+			if (strncmp(av[2], "SUBSTNAM", 8) == 0)
+			{
+				chSubstIdName.Set(av[3]);
+			}
+		}
+
 		if(cmd>=0)
 		{
 			res=YSERR;
@@ -8333,9 +8491,11 @@ YSRESULT FsAirplaneProperty::SendCommand(const char in[])
 				break;
 			case  8: //"LEFTGEAR", //X Y Z [M][IN]
 				res=FsGetVec3(chMainGearL,ac-1,av+1);
+				chMainGearL.SetX(-abs(chMainGearL.x()));
 				break;
 			case  9: //"RIGHGEAR", //X Y Z [M][IN]
 				res=FsGetVec3(chMainGearR,ac-1,av+1);
+				chMainGearR.SetX(abs(chMainGearR.x()));
 				break;
 			case 10: //"WHELGEAR", //X Y Z [M][IN]
 				res=FsGetVec3(chWheel,ac-1,av+1);
@@ -8381,6 +8541,7 @@ YSRESULT FsAirplaneProperty::SendCommand(const char in[])
 				break;
 			case 24: //"WINGAREA", //##[M^2][IN^2]
 				res=FsGetArea(chWingArea,av[1]);
+				if (chWingArea == 0) { chWingArea = 1; }
 				break;
 			case 25: //"MXIPTAOA", //##[RAD][DEG]
 				res=FsGetAngle(chMaxInputAOA,av[1]);
@@ -8548,7 +8709,8 @@ YSRESULT FsAirplaneProperty::SendCommand(const char in[])
 				break;
 			case 66: //"STRENGTH"
 				res=YSOK;
-				staDamageTolerance=atoi(av[1]);
+				staCurrentHealth =atoi(av[1]);
+				staStrength = atoi(av[1]);
 				break;
 			case 67: //"PROPELLR"
 				res=FsGetJoulePerSecond(chThrMil,av[1]);
@@ -8735,11 +8897,10 @@ YSRESULT FsAirplaneProperty::SendCommand(const char in[])
 					chClass=FSCL_AIRPLANE;
 					res=YSOK;
 				}
-				else if(strcmp(av[1],"HELICOPTER")==0 ||
-				        strcmp(av[1],"Helicopter")==0 ||
-				        strcmp(av[1],"helicopter")==0)
+				else if(strcmp(av[1],"HELICOPTER")==0)
 				{
 					chClass=FSCL_HELICOPTER;
+					chTireFrictionConst = 0.5; //Assume helicopters have skids by default
 					res=YSOK;
 				}
 				else
@@ -8858,6 +9019,7 @@ YSRESULT FsAirplaneProperty::SendCommand(const char in[])
 
 			case 129: // "GUNINTVL"   // Gun Interval
 				chGunInterval=atof(av[1]);
+				if (chGunInterval == 0) { chGunInterval = 0.001; }
 				res=YSOK;
 				break;
 
@@ -9082,8 +9244,22 @@ YSRESULT FsAirplaneProperty::SendCommand(const char in[])
 						view.showInstPanelIfAvailable=YSTRUE;
 						res=YSOK;
 
+						int commentPosition = 9999;
+
+						for (int i = 8; i < ac; ++i)
+						{
+							if (av[i][0] == '#')
+							{
+								commentPosition = i;
+							}
+						}
+
 						for(int i=8; i<ac; ++i)
 						{
+							if (i >= commentPosition)
+							{
+								break;
+							}
 							if(0==strcmp(av[i],"INSIDE"))
 							{
 								view.vpType=FS_ADVW_INSIDE;
@@ -9492,7 +9668,7 @@ YSRESULT FsAirplaneProperty::SendCommand(const char in[])
 				}
 				break;
 			case 175: // "NREALPRP",  // Number of (real) propeller engines
-				if(2<=ac)
+				/*if(2<=ac)
 				{
 					YsString raw(in);
 					raw.DropSingleLineComment("#");
@@ -9512,10 +9688,11 @@ YSRESULT FsAirplaneProperty::SendCommand(const char in[])
 						propLever=1.0; // Full forward by default.
 					}
 					res=YSOK;
-				}
+				}*/
+				res = YSOK;
 				break;
 			case 176: // "REALPROP"
-				if(2<=ac)
+				/*if(2<=ac)
 				{
 					YsString raw(in);
 					raw.DropSingleLineComment("#");
@@ -9529,7 +9706,8 @@ YSRESULT FsAirplaneProperty::SendCommand(const char in[])
 					{
 						res=chRealProp[engineIdx].SendCommand(ac-2,av+2);
 					}
-				}
+				}*/
+				res = YSOK;
 				break;
 			case 177: // "TIREFRIC",  // Tire friction coefficient
 				if(2<=ac)
@@ -9795,6 +9973,9 @@ void FsAirplaneProperty::AutoCalculate(void)
 		v=30.0;
 		m=chCleanWeight+chMaxFuelLoad;
 		chBrakeConst=(v*v*m)/(2.0*refLNGRunway);
+
+		chDirectAttitudeControlReqThr1 = -0.1; //Force helicopters to be controllable at idle
+		chDirectAttitudeControlReqThr2 = -0.1;
 	}
 }
 
@@ -10097,12 +10278,12 @@ YSBOOL FsAirplaneProperty::CheckSafeTouchDown(FSDIEDOF &diedOf) const
 		diedOf=FSDIEDOF_LANDINGGEARNOTEXTENDED;
 		return YSFALSE;
 	}
-	if(staTDAtt.b()<YsDegToRad(-45.0) || YsDegToRad(45.0)<staTDAtt.b())
+	if(staTDAtt.b()<YsDegToRad(-60.0) || YsDegToRad(60.0)<staTDAtt.b())
 	{
 		diedOf=FSDIEDOF_BADBANKANGLE;
 		return YSFALSE;
 	}
-	if(staTDAtt.p()<YsDegToRad(-10.0) || YsDegToRad(45.0)<staTDAtt.p())
+	if(staTDAtt.p()<YsDegToRad(-30.0) || YsDegToRad(60.0)<staTDAtt.p())
 	{
 		diedOf=FSDIEDOF_BADPITCHANGLE;
 		return YSFALSE;
@@ -10156,7 +10337,7 @@ void FsAirplaneProperty::WriteFlightRecord(FsFlightRecord &rec) const
 	rec.gear=(unsigned char)(YsBound(int(staGear*255.0),0,255));
 	rec.flap=(unsigned char)(YsBound(int(staFlap*255.0),0,255));
 	rec.brake=(unsigned char)(YsBound(int(staBrake*255.0),0,255));
-	rec.dmgTolerance=(unsigned char)staDamageTolerance;
+	rec.curHealth=(unsigned char)staCurrentHealth;
 
 	rec.flags=0;
 	if(staAb==YSTRUE)
@@ -10259,7 +10440,7 @@ void FsAirplaneProperty::ReadbackFlightRecord(
 	staGear=double(rec.gear)/255.0;
 	staFlap=double(rec.flap)/255.0;
 	staBrake=double(rec.brake)/255.0;
-	staDamageTolerance=rec.dmgTolerance;
+	staCurrentHealth=rec.curHealth;
 	staAb=((rec.flags&FsFlightRecord::FLAGS_AB)!=0 ? YSTRUE : YSFALSE);
 	// staIls=((rec.flags&FsFlightRecord::FLAGS_ILS)!=0 ? YSTRUE : YSFALSE);
 	staVectorMarker=((rec.flags&FsFlightRecord::FLAGS_VECTOR)!=0 ? YSTRUE : YSFALSE);

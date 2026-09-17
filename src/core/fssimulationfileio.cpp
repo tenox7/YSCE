@@ -115,7 +115,7 @@ YSRESULT FsSimulation::Save(
 	{
 		if(air->actualIdName[0]==0)
 		{
-			fprintf(fp,"AIRPLANE %s ",air->Prop().GetIdentifier());
+			fprintf(fp,"\nAIRPLANE %s ",air->Prop().GetIdentifier());
 			fprintf(fp,"%s",FsTrueFalseString(IsPlayerAirplane(air)));
 
 			const char *substId;
@@ -128,7 +128,7 @@ YSRESULT FsSimulation::Save(
 		}
 		else
 		{
-			fprintf(fp,"AIRPLANE %s ",(const char *)air->actualIdName);
+			fprintf(fp,"\nAIRPLANE %s ",(const char *)air->actualIdName);
 			fprintf(fp,"%s",FsTrueFalseString(IsPlayerAirplane(air)));
 
 			fprintf(fp," SUBST:%s",air->Prop().GetIdentifier());
@@ -307,7 +307,7 @@ YSRESULT FsSimulation::Save(
 
 				fprintf(fp,"%d %d %d %d ",r->state      ,r->vgw         ,r->spoiler,r->gear);
 				fprintf(fp,"%d %d %d %d ",r->flap       ,r->brake       ,r->smoke  ,r->vapor);
-				fprintf(fp,"%d %d %d %d ",r->flags      ,r->dmgTolerance,r->thr    ,r->elv);
+				fprintf(fp,"%d %d %d %d ",r->flags      ,r->curHealth,r->thr    ,r->elv);
 				fprintf(fp,"%d %d %d %d ",r->ail        ,r->rud         ,r->elvTrim,r->thrVector);
 				fprintf(fp,"%d %d\n"     ,r->thrReverser,r->bombBay);
 
@@ -323,6 +323,7 @@ YSRESULT FsSimulation::Save(
 
 	FsGround *gnd;
 	gnd=NULL;
+	fprintf(fp, "\n");
 	while((gnd=FindNextGround(gnd))!=NULL)
 	{
 		fprintf(fp,"GROUNDOB %s",gnd->Prop().GetIdentifier());
@@ -441,7 +442,7 @@ YSRESULT FsSimulation::Save(
 
 				fprintf(fp,"%d %d\n",
 				    r->state,
-				    r->dmgTolerance);
+				    r->curHealth);
 				fprintf(fp,"%.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f 0 0 0\n",
 				    r->aaaAimh,r->aaaAimp,r->aaaAimb,
 				    r->samAimh,r->samAimp,r->samAimb,
@@ -464,7 +465,7 @@ YSRESULT FsSimulation::Save(
 			}
 		}
 	}
-
+	fprintf(fp, "\n");
 	bulletHolder.Save(fp,this,wpnPosPrecision,wpnAttPrecision);
 	explosionHolder.Save(fp,this);
 	weather->Save(fp);

@@ -8,6 +8,7 @@
 #include "fssimulation.h"
 
 // Declaration /////////////////////////////////////////////
+
 class FsAirplaneTemplate
 {
 public:
@@ -362,6 +363,8 @@ public:
 	YSRESULT SetMissionGoal(class FsMissionGoal &goal);
 	YSRESULT TieDownCarrier(void);
 	YSRESULT DisableGroundFire(void);
+	YSRESULT EnableGroundFire(void);
+	YSBOOL GroundFireDisabled = YSFALSE;
 	YSRESULT SetEnvironment(FSENVIRONMENT env);
 	FSENVIRONMENT GetEnvironment(void);
 	FsAirplane *AddAirplane(const char idName[],YSBOOL isPlayerPlane,unsigned netSearchKey=0);
@@ -410,6 +413,9 @@ public:
 	YSBOOL CheckCloseAirSupportMissionAvailable(void) const;
 
 	YSRESULT RunReplayOneStep(FsSimulation::FSSIMULATIONSTATE &state,FsSimulation::ReplayInfo &replayInfo);
+	YSRESULT SetReplayResumed(YSBOOL resume);
+	YSBOOL IsReplayResumed(void);
+	YSBOOL replayResumed;
 	YSRESULT RunDemoMode
 	   (FsDemoModeInfo &info,YSBOOL &terminatedByUser,const char sysMsg[],const double &maxTime,
 	    YSBOOL drawSmokeAndVapor,YSBOOL preserveFlightRecord);
@@ -462,6 +468,9 @@ public:
 	YSBOOL PlayerPlaneIsReady(void) const;
 	YSBOOL PlayerGroundIsReady(void) const;
 	YSBOOL IsFlightRecord(void);
+	YSBOOL isNetClient;
+	YSRESULT SetIsNetClient(YSBOOL client);
+	YSBOOL GetIsNetClient(void);
 	FsAirplane *GetPlayerAirplane(void) const;
 	FsGround *GetPlayerGround(void) const;
 	int GetNumAirplaneLoaded(void);

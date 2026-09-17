@@ -45,7 +45,7 @@ typedef int SOCKET;
 
 
 #include <yssocket.h>
-
+#include <string>
 #include "fstextresource.h"
 
 YSBOOL FsVerboseMode=YSFALSE;
@@ -581,7 +581,7 @@ void FsNetReceivedAirplaneState::Decode(const unsigned char dat[],const double &
 		aam=FsPopUnsignedChar(ptr);    // FsPushUnsignedChar(ptr,(unsigned char)aam);
 		agm=FsPopUnsignedChar(ptr);    // FsPushUnsignedChar(ptr,(unsigned char)agm);
 		bomb=FsPopUnsignedChar(ptr);   // FsPushUnsignedChar(ptr,(unsigned char)bom);
-		life=FsPopUnsignedChar(ptr);   // FsPushUnsignedChar(ptr,(unsigned char)GetDamageTolerance());
+		life=FsPopUnsignedChar(ptr);   // FsPushUnsignedChar(ptr,(unsigned char)GetCurrentHealth());
 
 		g=double(FsPopChar(ptr))/10.0; // FsPushChar(ptr,(char)g);
 
@@ -1466,7 +1466,7 @@ YSRESULT FsSocketServer::BroadcastGroundState(void)
 			   YsEqual(gnd->GetAttitude().b(),gnd->netAtt.b())!=YSTRUE ||
 			   gnd->Prop().IsFiringAaa()!=gnd->netShootingAaa ||
 			   gnd->Prop().IsFiringCannon()!=gnd->netShootingCannon ||
-			   gnd->Prop().GetDamageTolerance()!=gnd->netDamageTolerance)
+			   gnd->Prop().GetCurrentHealth()!=gnd->netCurrentHealth)
 			{
 				unsigned int packetSizeShort;
 				unsigned char datShort[256];
@@ -1493,7 +1493,7 @@ YSRESULT FsSocketServer::BroadcastGroundState(void)
 				gnd->netAtt=gnd->GetAttitude();
 				gnd->netShootingAaa=gnd->Prop().IsFiringAaa();
 				gnd->netShootingCannon=gnd->Prop().IsFiringCannon();
-				gnd->netDamageTolerance=gnd->Prop().GetDamageTolerance();
+				gnd->netCurrentHealth=gnd->Prop().GetCurrentHealth();
 			}
 			else
 			{
@@ -1556,7 +1556,7 @@ YSRESULT FsSocketServer::BroadcastReviveGround(void)
 	gnd=NULL;
 	while((gnd=sim->FindNextGround(gnd))!=NULL)
 	{
-		gnd->netDamageTolerance=gnd->Prop().GetDamageTolerance()+1;  // <- This will trigger BroadcastGroundState
+		gnd->netCurrentHealth =gnd->Prop().GetCurrentHealth()+1;  // <- This will trigger BroadcastGroundState
 		gnd->Settle(gnd->initPosition);  // 2004/09/03
 		gnd->Settle(gnd->initAttitude);  // 2004/09/03
 		gnd->motionPathIndex=0;  // 2004/09/03
@@ -1780,11 +1780,40 @@ YSRESULT FsSocketServer::BroadcastGetDamage
 	unsigned char dat[256],*ptr;
 	ptr=dat;
 	FsPushInt(ptr,FSNETCMD_GETDAMAGE);
+	int victimHealth = victim->CommonProp().GetCurrentHealth(); //Health as presented by client
+	int victimStrength = victim->CommonProp().GetStrength(); //Strength from server files
+	if (victimStrength < 0) //Ground object GetStrength() returns underflow value for some reason
+	{
+		victimStrength = 10; //10 is a good default strength
+	}
 
 	int isAir,idOnSvr;
 	EncodeObject(isAir,idOnSvr,victim);
 	FsPushInt(ptr,isAir);
 	FsPushInt(ptr,idOnSvr);
+
+	if (isAir == 1 && victimHealth < 0) //Force aircraft with health between 2^15 and 2^16 (underflow) to STRENGTH 0 (can't AirCmd health directly)
+	{
+		BroadcastAirCmd(idOnSvr, "STRENGTH 0"); //This could trigger in regular play, so set to 0 to prevent accidental revives
+	}
+
+	if (isAir == 1 && victimHealth > victimStrength) //Force aircraft with health between STRENGTH and 2^15 to reset STRENGTH
+	{
+		printf("ILLEGAL HEALTH: User %i (%s) has health %i of %i\n", victim->SearchKey(), victim->name, victimHealth, victimStrength);
+		char strengthOverride[15];
+		if (victimStrength - power >= 0)
+		{
+			sprintf(strengthOverride, "STRENGTH %d", victimStrength - power);
+			printf("Reduced illegal health to %d\n", victimStrength - power);
+		}
+		else
+		{
+			sprintf(strengthOverride, "STRENGTH 0");
+			printf("Reduced illegal health to 0\n");
+		}
+
+		BroadcastAirCmd(idOnSvr, strengthOverride);
+	}
 
 	EncodeObject(isAir,idOnSvr,firedBy);
 	FsPushInt(ptr,isAir);
@@ -1806,7 +1835,6 @@ YSRESULT FsSocketServer::BroadcastAirCmd(int airId,const char cmd[])
 	FsPushInt(ptr,FSNETCMD_AIRCMD);
 	FsPushInt(ptr,airId);
 	strcpy((char *)(dat+8),cmd);
-
 	packetLength=8+strlen(cmd)+1;
 	return BroadcastPacket(packetLength,dat,20010624);
 }
@@ -2402,7 +2430,12 @@ YSRESULT FsSocketServer::AddMessage(const char *txt)
 	}
 	else
 	{
-		return YSERR;
+		for (int i = 1; i < nMsg; i++)
+		{
+			strcpy(msg[i - 1], msg[i]);
+		}
+		strcpy(msg[MAXNUMMESSAGE - 1], txt);
+		return YSOK;
 	}
 }
 
@@ -2686,7 +2719,7 @@ YSRESULT FsSocketServer::ReceiveLogOnUser(int clientId,int version,const char re
 
 		SendError(clientId,FSNETERR_VERSIONCONFLICT);
 
-		AddMessage("Connection is rejected because of versoin conflict.");
+		AddMessage("Connection is rejected because of version conflict.");
 		char str[256];
 		sprintf(str,"  SERVER NET-VERSION : %d",YSFLIGHT_NETVERSION);
 		AddMessage(str);
@@ -5352,7 +5385,7 @@ YSRESULT FsSocketClient::NotifyGroundState(void)
 			   YsEqual(gnd->GetAttitude().b(),gnd->netAtt.b())!=YSTRUE ||
 			   gnd->Prop().IsFiringAaa()!=gnd->netShootingAaa ||
 			   gnd->Prop().IsFiringCannon()!=gnd->netShootingCannon ||
-			   gnd->Prop().GetDamageTolerance()!=gnd->netDamageTolerance)
+			   gnd->Prop().GetCurrentHealth()!=gnd->netCurrentHealth)
 			{
 				unsigned int packetSize;
 				unsigned char dat[512];
@@ -5393,7 +5426,12 @@ YSRESULT FsSocketClient::AddMessage(const char *txt)
 	}
 	else
 	{
-		return YSERR;
+		for (int i = 1; i < nMsg; i++)
+		{
+			strcpy(msg[i-1],msg[i]);
+		}
+		strcpy(msg[MAXNUMMESSAGE-1], txt);
+		return YSOK;
 	}
 }
 
@@ -5621,6 +5659,11 @@ YSRESULT FsSocketClient::SendGetDamage(FsExistence *victim,FsExistence *firedBy,
 	unsigned char dat[256],*ptr;
 	int victimIsAir,firedByAir;
 	int victimIdOnSvr,firedByIdOnSvr;
+
+	if (weaponType != 0) // Send powerless weapons (except gun) to prevent server double-counting impacts
+	{
+		power = 0;
+	}
 
 	ptr=dat;
 	FsPushInt(ptr,FSNETCMD_GETDAMAGE);
@@ -8706,6 +8749,7 @@ YSRESULT FsSimulation::ServerState_StandBy(
 		case FSNCC_SVR_REVIVEGROUND:
 			ReviveGround();
 			svr.BroadcastReviveGround();
+			fsConsole.Printf("Reviving ground objects.");
 			break;
 		case FSNCC_COMMON_OBSERVERMODE:
 			if(FsIsConsoleServer()!=YSTRUE)
@@ -8937,17 +8981,24 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 			}
 			else
 			{
-				++svrSta.startServerRetryCount;
-				if(6<=svrSta.startServerRetryCount)
+				if (svrSta.resetServer == YSTRUE)
 				{
-					svrSta.fatalError=FsServerRunLoop::SERVER_FATAL_CANNOT_START;
-					svrSta.runState=FsServerRunLoop::SERVER_RUNSTATE_TERMINATED;
+					++svrSta.startServerRetryCount;
+					if (6 <= svrSta.startServerRetryCount)
+					{
+						svrSta.fatalError = FsServerRunLoop::SERVER_FATAL_CANNOT_START;
+						svrSta.runState = FsServerRunLoop::SERVER_RUNSTATE_TERMINATED;
+					}
+					fsConsole.Printf("Failed to start server.\n");
+					fsConsole.Printf("Retry (Count=%d)\n", svrSta.startServerRetryCount);
+
+					svrSta.nextServerStartCountDown = time(NULL) + 5;
+					svrSta.nextServerStartTryTime = time(NULL) + 90;
 				}
 				fsConsole.Printf("Failed to start server.\n");
-				fsConsole.Printf("Retry (Count=%d)\n",svrSta.startServerRetryCount);
-
-				svrSta.nextServerStartCountDown=time(NULL)+5;
-				svrSta.nextServerStartTryTime=time(NULL)+90;
+				fsStderr.Printf("Failed to start server.\n");
+				svrSta.fatalError = FsServerRunLoop::SERVER_FATAL_CANNOT_START;
+				svrSta.runState = FsServerRunLoop::SERVER_RUNSTATE_TERMINATED;
 			}
 		}
 		else if(svrSta.nextServerStartCountDown<=time(NULL))
@@ -9078,7 +9129,7 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 				{
 					if(gnd->Prop().GetNumSAM()>0 || gnd->Prop().GetNumAaaBullet()>0)
 					{
-						gnd->Prop().SetDamageTolerance(0);
+						gnd->Prop().SetCurrentHealth(0);
 						gnd->Prop().SetState(FSGNDDEAD);
 					}
 				}
@@ -9384,7 +9435,8 @@ void FsSimulation::RunServerModeOneStep(FsServerRunLoop &svrSta)
 				if(timeElapsed>=resetTimer)
 				{
 					svrSta.resetServer=YSTRUE;
-					break;
+					server.quit = YSTRUE;
+					//break;
 				}
 				if(curTime!=svrSta.prvTime)
 				{
@@ -9990,6 +10042,7 @@ YSRESULT FsSimulation::ClientState_StandBy(
 				pGear=air->Prop().GetLandingGear();
 				ppGear=air->Prop().GetLandingGear();
 				userInput.hasAb=air->Prop().GetHasAfterburner();
+				air->Prop().TurnOnAllLight();
 
 				// 2001/06/24
 				int idOnSvr;
@@ -10151,7 +10204,7 @@ YSRESULT FsSimulation::ClientState_SideWindow(const double &,class FsSocketClien
 	userInput.viewPch=pch;
 	if(air!=NULL && air->IsAlive()==YSTRUE)
 	{
-		SetPlayerAirplane(air);
+		SetPlayerAirplane(air, YSFALSE);
 	}
 
 	if(air==NULL || air->IsAlive()!=YSTRUE || escKeyCount>=2 ||
@@ -10503,6 +10556,13 @@ printf("%s %d\n",__FUNCTION__,__LINE__);
 					   air->netNextState.tRemote>air->netPrevState.tRemote)
 					{
 						air->Prop().NetworkDecode(air->netPrevState,air->netNextState);
+						if (air == GetPlayerAirplane() && (mainWindowActualViewMode.actualViewMode == FSCOCKPITVIEW || mainWindowActualViewMode.actualViewMode == FSADDITIONALAIRPLANEVIEW))
+						{
+							//To prevent jitter in observer mode cockpit view
+							//Currently camera is decided before packets are processed for some reason
+							//Reupdate camera position after aircraft position changes
+							DecideAllViewPoint(0.0);
+						}
 					}
 				}
 			}

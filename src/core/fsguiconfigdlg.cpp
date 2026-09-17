@@ -308,8 +308,8 @@ void FsGuiConfigDialog::MakeGraphicDialog(FsWorld *,FsFlightConfig &)
 	label->SetFill(YSFALSE);
 	label->SetDrawFrame(YSFALSE);
 
-	const char *const cloudOptionStr[]={"No Cloud","Solid Cloud","Flat Cloud"};
-	cloudLbx=AddDropList(MkId("cloudType"),FSKEY_NULL,"Cloud",3,cloudOptionStr,3,16,16,YSFALSE);
+	const char *const cloudOptionStr[]={"No Cloud","Flat Cloud","Solid Cloud","Particle cloud"};
+	cloudLbx=AddDropList(MkId("cloudType"),FSKEY_NULL,"Cloud",4,cloudOptionStr,4,16,16,YSFALSE);
 
 
 
@@ -326,8 +326,8 @@ void FsGuiConfigDialog::MakeGraphicDialog(FsWorld *,FsFlightConfig &)
 	label->SetFill(YSFALSE);
 	label->SetDrawFrame(YSFALSE);
 
-	const char *const smkTypeStr[]={"Towel","Solid","NOSMOKE"};
-	smokeTypeLbx=AddDropList(MkId("smokeType"),FSKEY_NULL,"Smoke Type",3,smkTypeStr,4,16,16,YSFALSE);
+	const char *const smkTypeStr[]={"No Smoke", "Flat smoke","Solid smoke","Particle smoke"};
+	smokeTypeLbx=AddDropList(MkId("smokeType"),FSKEY_NULL,"Smoke Type",4,smkTypeStr,4,16,16,YSFALSE);
 
 	smokeRemainTime=AddTextBox(MkId("smokeTime"),FSKEY_NULL,FSGUI_CFGDLG_SMOKEREMAIN,"",8,YSTRUE);
 	smokeRemainTime->SetTextType(FSGUI_INTEGER);
@@ -335,9 +335,11 @@ void FsGuiConfigDialog::MakeGraphicDialog(FsWorld *,FsFlightConfig &)
 	smokeDrawEveryNStep=AddTextBox(MkId("smokeStep"),FSKEY_NULL,FSGUI_CFGDLG_SMOKESTEP,"",8,YSTRUE);
 	smokeDrawEveryNStep->SetTextType(FSGUI_INTEGER);
 
-	drawBurningSmokeByParticle=AddTextButton(MkId("smokeParticle"),FSKEY_NULL,FSGUI_CHECKBOX,FSGUI_CFGDLG_SMKPARTICLE,YSTRUE);
+	drawParticleFire=AddTextButton(MkId("fireParticle"),FSKEY_NULL,FSGUI_CHECKBOX,FSGUI_CFGDLG_FIREPARTICLE,YSTRUE);
 
-	showFpsBtn=AddTextButton(MkId("showFps"),FSKEY_NULL,FSGUI_CHECKBOX,FSGUI_CFGDLG_SHOWFPS,YSFALSE);
+	drawParticleFlare = AddTextButton(MkId("flareParticle"), FSKEY_NULL, FSGUI_CHECKBOX, FSGUI_CFGDLG_FLAREPARTICLE, YSFALSE);
+
+	showFpsBtn=AddTextButton(MkId("showFps"),FSKEY_NULL,FSGUI_CHECKBOX,FSGUI_CFGDLG_SHOWFPS,YSTRUE);
 }
 
 void FsGuiConfigDialog::MakeOpenGLDialog(FsWorld *,FsFlightConfig &)
@@ -457,7 +459,8 @@ void FsGuiConfigDialog::InitializeDialog(FsWorld *,FsFlightConfig &cfg)
 	showFpsBtn->SetCheck(cfg.showFps);
 	showIASBtn->SetCheck(cfg.showIAS);
 
-	drawBurningSmokeByParticle->SetCheck(cfg.useParticle);
+	drawParticleFire->SetCheck(cfg.useParticleFire);
+	drawParticleFlare->SetCheck(cfg.useParticleFlare);
 #ifdef __APPLE__
 	useOpenGlAntiAliasing->SetCheck(cfg.useOpenGlAntiAliasing);
 #endif
@@ -549,10 +552,13 @@ void FsGuiConfigDialog::InitializeDialog(FsWorld *,FsFlightConfig &cfg)
 			cloudLbx->Select(0);
 			break;
 		case FSCLOUDSOLID:
-			cloudLbx->Select(1);
+			cloudLbx->Select(2);
 			break;
 		case FSCLOUDFLAT:
-			cloudLbx->Select(2);
+			cloudLbx->Select(1);
+			break;
+		case FSCLOUDPARTICLE:
+			cloudLbx->Select(3);
 			break;
 		}
 	}
@@ -562,16 +568,19 @@ void FsGuiConfigDialog::InitializeDialog(FsWorld *,FsFlightConfig &cfg)
 	case FSSMKNOODLE:
 	case FSSMKCIRCLE:
 	case FSSMKTOWEL:
-		smokeTypeLbx->Select(0);
-		break;
-	case FSSMKSOLID:
 		smokeTypeLbx->Select(1);
 		break;
-	case FSSMKNULL:
+	case FSSMKSOLID:
 		smokeTypeLbx->Select(2);
 		break;
+	case FSSMKPARTICLE:
+		smokeTypeLbx->Select(3);
+		break;
+	case FSSMKNULL:
+		smokeTypeLbx->Select(0);
+		break;
 	}
-	smokeTypeLbx->SetEnabled(YsReverseBool(cfg.useParticle));
+	//smokeTypeLbx->SetEnabled(YsReverseBool(cfg.useParticle));
 
 
 	smokeRemainTime->SetInteger((int)cfg.smkRemainTime);
@@ -622,7 +631,9 @@ void FsGuiConfigDialog::RetrieveConfig(FsFlightConfig &cfg)
 	cfg.showIAS=showIASBtn->GetCheck();
 	cfg.radarAltitudeLimit=radarAltLimitTxt->GetRealNumber()*0.3048;
 	cfg.showFps=showFpsBtn->GetCheck();
-	cfg.useParticle=drawBurningSmokeByParticle->GetCheck();
+	//cfg.useParticle=drawParticle->GetCheck();
+	cfg.useParticleFire = drawParticleFire->GetCheck();
+	cfg.useParticleFlare = drawParticleFire->GetCheck();
 #ifdef __APPLE__
 	cfg.useOpenGlAntiAliasing=useOpenGlAntiAliasing->GetCheck();
 #endif
@@ -729,11 +740,15 @@ void FsGuiConfigDialog::RetrieveConfig(FsFlightConfig &cfg)
 		break;
 	case 1:
 		cfg.drawCloud=YSTRUE;
-		cfg.cloudType=FSCLOUDSOLID;
+		cfg.cloudType=FSCLOUDFLAT;
 		break;
 	case 2:
 		cfg.drawCloud=YSTRUE;
-		cfg.cloudType=FSCLOUDFLAT;
+		cfg.cloudType=FSCLOUDSOLID;
+		break;
+	case 3:
+		cfg.drawCloud = YSTRUE;
+		cfg.cloudType = FSCLOUDPARTICLE;
 		break;
 	}
 	cfg.airLod=airplaneGraphicsLbx->GetSelection();
@@ -741,13 +756,16 @@ void FsGuiConfigDialog::RetrieveConfig(FsFlightConfig &cfg)
 	{
 	default:
 	case 0:
-		cfg.smkType=FSSMKTOWEL;
+		cfg.smkType = FSSMKNULL;
 		break;
 	case 1:
-		cfg.smkType=FSSMKSOLID;
+		cfg.smkType=FSSMKTOWEL;
 		break;
 	case 2:
-		cfg.smkType=FSSMKNULL;
+		cfg.smkType=FSSMKSOLID;
+		break;
+	case 3:
+		cfg.smkType=FSSMKPARTICLE;
 		break;
 	}
 	cfg.smkRemainTime=YsBound(smokeRemainTime->GetRealNumber(),10.0,160.0);
@@ -792,9 +810,9 @@ void FsGuiConfigDialog::OnButtonClick(FsGuiButton *btn)
 		cfg.SetDefault();
 		InitializeDialog(world,cfg);
 	}
-	else if(btn==drawBurningSmokeByParticle)
+	else if(btn==drawParticleFire)
 	{
-		smokeTypeLbx->SetEnabled(YsReverseBool(drawBurningSmokeByParticle->GetCheck()));
+		smokeTypeLbx->SetEnabled(YsReverseBool(drawParticleFire->GetCheck()));
 	}
 }
 
@@ -1879,8 +1897,6 @@ void FsGuiKeyAssignDialogClass::OnButtonClick(FsGuiButton *btn)
 			dlg->BindCloseModalCallBack(&FsGuiKeyAssignDialogClass::OnCloseAxisAssignDialog,this);
 			AttachModalDialog(dlg);
 		}
-
-		RestoreListBoxPos();
 	}
 	if(btn==changeJoyTrigFuncBtn)
 	{
@@ -1902,8 +1918,6 @@ void FsGuiKeyAssignDialogClass::OnButtonClick(FsGuiButton *btn)
 			dlg->BindCloseModalCallBack(&FsGuiKeyAssignDialogClass::OnCloseTriggerAssignDialog,this);
 			AttachModalDialog(dlg);
 		}
-
-		RestoreListBoxPos();
 	}
 	if(btn==changeKeyFuncBtn)
 	{
@@ -1923,8 +1937,6 @@ void FsGuiKeyAssignDialogClass::OnButtonClick(FsGuiButton *btn)
 			dlg->BindCloseModalCallBack(&FsGuiKeyAssignDialogClass::OnCloseKeyAssignDialog,this);
 			AttachModalDialog(dlg);
 		}
-
-		RestoreListBoxPos();
 	}
 }
 
@@ -1938,7 +1950,7 @@ void FsGuiKeyAssignDialogClass::OnCloseAxisAssignDialog(FsGuiDialog *dlg,int ret
 		auto newRev=assignDlg->newRev;
 		auto funcType=assignDlg->funcType;
 		printf("%d %d %d\n",newJoy,newAxis,newRev);
-		if(newJoy>=0)
+		if(newJoy>=0 && newAxis >=0)
 		{
 			ctlAssign.AddAxisAssignment(newJoy,newAxis,(FSAXISFUNCTION)funcType,newRev);
 		}
@@ -1948,6 +1960,7 @@ void FsGuiKeyAssignDialogClass::OnCloseAxisAssignDialog(FsGuiDialog *dlg,int ret
 		}
 		ctlAssign.BuildMapping();
 		Initialize();
+		RestoreListBoxPos();
 	}
 }
 
@@ -1959,7 +1972,7 @@ void FsGuiKeyAssignDialogClass::OnCloseTriggerAssignDialog(FsGuiDialog *dlg,int 
 		auto newJoy=assignDlg->newJoy;
 		auto newTrig=assignDlg->newTrig;
 		auto funcType=assignDlg->funcType;
-		if(newJoy>=0)
+		if(newJoy>=0 && newTrig >= 0)
 		{
 			ctlAssign.AddTriggerAssignment(newJoy,newTrig,(FSBUTTONFUNCTION)funcType);
 		}
@@ -1969,6 +1982,7 @@ void FsGuiKeyAssignDialogClass::OnCloseTriggerAssignDialog(FsGuiDialog *dlg,int 
 		}
 		ctlAssign.BuildMapping();
 		Initialize();
+		RestoreListBoxPos();
 	}
 }
 
@@ -1989,6 +2003,7 @@ void FsGuiKeyAssignDialogClass::OnCloseKeyAssignDialog(FsGuiDialog *dlg,int retu
 		}
 		ctlAssign.BuildMapping();
 		Initialize();
+		RestoreListBoxPos();
 	}
 }
 void FsGuiKeyAssignDialogClass::OnClosePrimaryJoystickDialog(FsGuiDialog *dlg,int returnCode)

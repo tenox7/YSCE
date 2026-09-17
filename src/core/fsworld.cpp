@@ -36,8 +36,9 @@
 #include "graphics/common/fsopengl.h"
 
 #include "fsgenmdl.h"
+#include "ui/fsrunloop.h"
 
-
+YsString failedLoadThisVisual; //This should probably go somewhere else at some point
 
 static YSRESULT YsLoadFld(YsScenery &scn,const wchar_t fn[])
 {
@@ -242,11 +243,15 @@ FsVisualDnm FsAirplaneTemplate::GetVisual(void) const
 	if(nullptr==vis && GetVisualFileName()[0]!=0)
 	{
 		vis.Load(GetVisualFileName());
-		if(nullptr==vis)
+		YsString utf8;
+		utf8.EncodeUTF8 <wchar_t>(GetVisualFileName());
+		if (strncmp (failedLoadThisVisual, utf8.Txt(), sizeof(failedLoadThisVisual)) != 0)
 		{
-			YsString utf8;
-			utf8.EncodeUTF8 <wchar_t> (GetVisualFileName());
-			fsStderr.Printf("Load Error (VISUAL):%s\n",utf8.Txt());
+			if (nullptr == vis)
+			{
+				fsStderr.Printf("Load Error (VISUAL):%s\n", utf8.Txt());
+				failedLoadThisVisual = utf8.Txt();
+			}
 		}
 	}
 	return vis;
@@ -1078,7 +1083,7 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 
 		double t;
 		double x,y,z,h,p,b,g;
-		int state,vgw,spoiler,gear,flap,brake,smoke,vapor,dmgTolerance,thr,elv,ail,rud,elvTrim;
+		int state,vgw,spoiler,gear,flap,brake,smoke,vapor,curHealth,thr,elv,ail,rud,elvTrim;
 		int thrVector,thrReverser,bombBay;
 		unsigned flags;
 
@@ -1236,7 +1241,7 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 								    &smoke,
 								    &vapor,
 								    &flags,
-								    &dmgTolerance,
+								    &curHealth,
 								    &thr,
 								    &elv,
 								    &ail,
@@ -1279,7 +1284,7 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 								record.smoke=(unsigned char)smoke;
 								record.vapor=(unsigned char)vapor;
 								record.flags=(unsigned short)flags;
-								record.dmgTolerance=(unsigned char)dmgTolerance;
+								record.curHealth=(unsigned char)curHealth;
 								record.thr=(unsigned char)thr;
 								record.elv=(char)elv;
 								record.ail=(char)ail;
@@ -1288,7 +1293,10 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 								record.thrVector=(unsigned char)thrVector;
 								record.thrReverser=(unsigned char)thrReverser;
 								record.bombBay=(unsigned char)bombBay;
-								air->Record(t,record,YSTRUE);
+								if (air != NULL)
+								{
+									air->Record(t, record, YSTRUE);
+								}
 							}
 						}
 						else if(version==2)
@@ -1315,7 +1323,7 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 								    &smoke,
 								    &vapor,
 								    &flags,
-								    &dmgTolerance,
+								    &curHealth,
 								    &thr,
 								    &elv,
 								    &ail,
@@ -1338,7 +1346,7 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 								record.smoke=(unsigned char)smoke;
 								record.vapor=(unsigned char)vapor;
 								record.flags=(unsigned short)flags;
-								record.dmgTolerance=(unsigned char)dmgTolerance;
+								record.curHealth=(unsigned char)curHealth;
 								record.thr=(unsigned char)thr;
 								record.elv=(char)elv;
 								record.ail=(char)ail;
@@ -1347,7 +1355,10 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 								record.thrVector=(unsigned char)thrVector;
 								record.thrReverser=(unsigned char)thrReverser;
 								record.bombBay=(unsigned char)bombBay;
-								air->Record(t,record,YSTRUE);
+								if (air != NULL)
+								{
+									air->Record(t, record, YSTRUE);
+								}
 							}
 						}
 						else if(version==1)
@@ -1374,7 +1385,7 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 								    &smoke,
 								    &vapor,
 								    &flags,
-								    &dmgTolerance,
+								    &curHealth,
 								    &thr,
 								    &elv,
 								    &ail,
@@ -1394,7 +1405,7 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 								record.smoke=(unsigned char)smoke;
 								record.vapor=(unsigned char)vapor;
 								record.flags=(unsigned short)flags;
-								record.dmgTolerance=(unsigned char)dmgTolerance;
+								record.curHealth=(unsigned char)curHealth;
 								record.thr=(unsigned char)thr;
 								record.elv=(char)elv;
 								record.ail=(char)ail;
@@ -1403,7 +1414,10 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 								record.thrVector=0;
 								record.thrReverser=0;
 								record.bombBay=0;
-								air->Record(t,record,YSTRUE);
+								if (air != NULL)
+								{
+									air->Record(t, record, YSTRUE);
+								}
 							}
 						}
 						else if(version==0) // Old Version
@@ -1428,7 +1442,7 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 								    &smoke,
 								    &vapor,
 								    &flags,
-								    &dmgTolerance);
+								    &curHealth);
 								record.pos.Set(x,y,z);
 								record.h=float(h);
 								record.p=float(p);
@@ -1443,7 +1457,7 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 								record.smoke=(unsigned char)smoke;
 								record.vapor=(unsigned char)vapor;
 								record.flags=(flags!=0 ? (FsFlightRecord::FLAGS_AB) : 0);
-								record.dmgTolerance=(unsigned char)dmgTolerance;
+								record.curHealth =(unsigned char)curHealth;
 								record.thr=0;
 								record.elv=0;
 								record.ail=0;
@@ -1452,7 +1466,10 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 								record.thrVector=0;
 								record.thrReverser=0;
 								record.bombBay=0;
-								air->Record(t,record,YSTRUE);
+								if (air != NULL)
+								{
+									air->Record(t, record, YSTRUE);
+								}
 							}
 						}
 						break;
@@ -1469,7 +1486,10 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 						{
 							YsString cmd;
 							cmd.Set(readBuf.Txt()+9);
-							air->cmdLog.Append(cmd);
+							if (air != NULL)
+							{
+								air->cmdLog.Append(cmd);
+							}
 						}
 						break;
 					case 12: //"GROUNDOB",  // Ground Object
@@ -1485,221 +1505,235 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 						}
 						break;
 					case 13: //"GRNDCMND",  // Ground Command
-						gnd->SendCommand(readBuf.Txt()+9);
-						break;
+						if (gnd != NULL)
+						{
+							gnd->SendCommand(readBuf.Txt() + 9);
+							break;
+						}
 					case 14: //"NUMGDREC",  // Number of Ground Record
-						nr=atoi(args[1]);
-						version=atoi(args[2]);
-						if(3==version)
+						nr = atoi(args[1]);
+						version = atoi(args[2]);
+						if (3 == version)
 						{
 							YsString readBuf;
-							YsArray <YsString,16> args;
+							YsArray <YsString, 16> args;
 
-							for(i=0; i<nr; i++)
+							for (i = 0; i < nr; i++)
 							{
 								readBuf.Fgets(fp);
-								sscanf(readBuf,"%lf",&t);
+								sscanf(readBuf, "%lf", &t);
 								readBuf.Fgets(fp);
-								sscanf(readBuf,"%lf%lf%lf%lf%lf%lf",&x,&y,&z,&h,&p,&b);
+								sscanf(readBuf, "%lf%lf%lf%lf%lf%lf", &x, &y, &z, &h, &p, &b);
 								readBuf.Fgets(fp);
-								sscanf(readBuf,"%d%d",&state,&dmgTolerance);
-								gdRecord.pos.Set(x,y,z);
-								gdRecord.h=float(h);
-								gdRecord.p=float(p);
-								gdRecord.b=float(b);
-								gdRecord.state=(unsigned char)state;
-								gdRecord.dmgTolerance=(unsigned char)dmgTolerance;
+								sscanf(readBuf, "%d%d", &state, &curHealth);
+								gdRecord.pos.Set(x, y, z);
+								gdRecord.h = float(h);
+								gdRecord.p = float(p);
+								gdRecord.b = float(b);
+								gdRecord.state = (unsigned char)state;
+								gdRecord.curHealth = (unsigned char)curHealth;
 
-								float h1,p1,b1,h2,p2,b2,h3,p3,b3;
+								float h1, p1, b1, h2, p2, b2, h3, p3, b3;
 								readBuf.Fgets(fp);
-								sscanf(readBuf,"%f%f%f%f%f%f%f%f%f",&h1,&p1,&b1,&h2,&p2,&b2,&h3,&p3,&b3);
-								gdRecord.aaaAimh=float(h1);
-								gdRecord.aaaAimp=float(p1);
-								gdRecord.aaaAimb=float(b1);
+								sscanf(readBuf, "%f%f%f%f%f%f%f%f%f", &h1, &p1, &b1, &h2, &p2, &b2, &h3, &p3, &b3);
+								gdRecord.aaaAimh = float(h1);
+								gdRecord.aaaAimp = float(p1);
+								gdRecord.aaaAimb = float(b1);
 
-								gdRecord.samAimh=float(h1);
-								gdRecord.samAimp=float(p1);
-								gdRecord.samAimb=float(b1);
+								gdRecord.samAimh = float(h1);
+								gdRecord.samAimp = float(p1);
+								gdRecord.samAimb = float(b1);
 
-								gdRecord.canAimh=float(h1);
-								gdRecord.canAimp=float(p1);
-								gdRecord.canAimb=float(b1);
+								gdRecord.canAimh = float(h1);
+								gdRecord.canAimp = float(p1);
+								gdRecord.canAimb = float(b1);
 
 								readBuf.Fgets(fp);
 								int steering;
-								unsigned int leftDoor,rightDoor,rearDoor,brake,lightState;
-								sscanf(readBuf,"%d%d%d%d%d%d",&steering,&leftDoor,&rightDoor,&rearDoor,&brake,&lightState);
-								gdRecord.steering=(char)steering;
-								gdRecord.leftDoor=(unsigned char)leftDoor;
-								gdRecord.rightDoor=(unsigned char)rightDoor;
-								gdRecord.rearDoor=(unsigned char)rearDoor;
-								gdRecord.brake=(unsigned char)brake;
-								gdRecord.lightState=(unsigned char)lightState;
+								unsigned int leftDoor, rightDoor, rearDoor, brake, lightState;
+								sscanf(readBuf, "%d%d%d%d%d%d", &steering, &leftDoor, &rightDoor, &rearDoor, &brake, &lightState);
+								gdRecord.steering = (char)steering;
+								gdRecord.leftDoor = (unsigned char)leftDoor;
+								gdRecord.rightDoor = (unsigned char)rightDoor;
+								gdRecord.rearDoor = (unsigned char)rearDoor;
+								gdRecord.brake = (unsigned char)brake;
+								gdRecord.lightState = (unsigned char)lightState;
 
 								readBuf.Fgets(fp);
-								if(YSOK==readBuf.Arguments(args)==YSOK && 0<args.GetN())
+								if (YSOK == readBuf.Arguments(args) == YSOK && 0 < args.GetN())
 								{
-									int j,n;
-									n=atoi(args[0]);
+									int j, n;
+									n = atoi(args[0]);
 									gdRecord.turret.Alloc(n);
-									for(j=0; j<n; j++)
+									for (j = 0; j < n; j++)
 									{
-										gdRecord.turret[j].h=(float)atof(args[1+j*3]);
-										gdRecord.turret[j].p=(float)atof(args[2+j*3]);
-										gdRecord.turret[j].turretState=atoi(args[3+j*3]);
+										gdRecord.turret[j].h = (float)atof(args[1 + j * 3]);
+										gdRecord.turret[j].p = (float)atof(args[2 + j * 3]);
+										gdRecord.turret[j].turretState = atoi(args[3 + j * 3]);
+									}
+								}
+								if (gnd != NULL)
+								{
+									gnd->Record(t, gdRecord, YSTRUE);
+								}
+							}
+						}
+						else if (version == 2)
+						{
+							YsString readBuf;
+							YsArray <YsString, 16> args;
+
+							for (i = 0; i < nr; i++)
+							{
+								readBuf.Fgets(fp);
+								sscanf(readBuf, "%lf", &t);
+								readBuf.Fgets(fp);
+								sscanf(readBuf, "%lf%lf%lf%lf%lf%lf", &x, &y, &z, &h, &p, &b);
+								readBuf.Fgets(fp);
+								sscanf(readBuf, "%d%d", &state, &curHealth);
+								gdRecord.pos.Set(x, y, z);
+								gdRecord.h = float(h);
+								gdRecord.p = float(p);
+								gdRecord.b = float(b);
+								gdRecord.state = (unsigned char)state;
+								gdRecord.curHealth = (unsigned char)curHealth;
+
+								float h1, p1, b1, h2, p2, b2, h3, p3, b3;
+								readBuf.Fgets(fp);
+								sscanf(readBuf, "%f%f%f%f%f%f%f%f%f", &h1, &p1, &b1, &h2, &p2, &b2, &h3, &p3, &b3);
+								gdRecord.aaaAimh = float(h1);
+								gdRecord.aaaAimp = float(p1);
+								gdRecord.aaaAimb = float(b1);
+
+								gdRecord.samAimh = float(h1);
+								gdRecord.samAimp = float(p1);
+								gdRecord.samAimb = float(b1);
+
+								gdRecord.canAimh = float(h1);
+								gdRecord.canAimp = float(p1);
+								gdRecord.canAimb = float(b1);
+
+
+								readBuf.Fgets(fp);
+								if (YSOK == readBuf.Arguments(args) == YSOK && 0 < args.GetN())
+								{
+									int j, n;
+									n = atoi(args[0]);
+									gdRecord.turret.Alloc(n);
+									for (j = 0; j < n; j++)
+									{
+										gdRecord.turret[j].h = (float)atof(args[1 + j * 3]);
+										gdRecord.turret[j].p = (float)atof(args[2 + j * 3]);
+										gdRecord.turret[j].turretState = atoi(args[3 + j * 3]);
 									}
 								}
 
-								gnd->Record(t,gdRecord,YSTRUE);
-							}
-						}
-						else if(version==2)
-						{
-							YsString readBuf;
-							YsArray <YsString,16> args;
+								gdRecord.steering = 0;
+								gdRecord.leftDoor = 0;
+								gdRecord.rightDoor = 0;
+								gdRecord.rearDoor = 0;
+								gdRecord.brake = 0;
+								gdRecord.lightState = 0;
 
-							for(i=0; i<nr; i++)
-							{
-								readBuf.Fgets(fp);
-								sscanf(readBuf,"%lf",&t);
-								readBuf.Fgets(fp);
-								sscanf(readBuf,"%lf%lf%lf%lf%lf%lf",&x,&y,&z,&h,&p,&b);
-								readBuf.Fgets(fp);
-								sscanf(readBuf,"%d%d",&state,&dmgTolerance);
-								gdRecord.pos.Set(x,y,z);
-								gdRecord.h=float(h);
-								gdRecord.p=float(p);
-								gdRecord.b=float(b);
-								gdRecord.state=(unsigned char)state;
-								gdRecord.dmgTolerance=(unsigned char)dmgTolerance;
-
-								float h1,p1,b1,h2,p2,b2,h3,p3,b3;
-								readBuf.Fgets(fp);
-								sscanf(readBuf,"%f%f%f%f%f%f%f%f%f",&h1,&p1,&b1,&h2,&p2,&b2,&h3,&p3,&b3);
-								gdRecord.aaaAimh=float(h1);
-								gdRecord.aaaAimp=float(p1);
-								gdRecord.aaaAimb=float(b1);
-
-								gdRecord.samAimh=float(h1);
-								gdRecord.samAimp=float(p1);
-								gdRecord.samAimb=float(b1);
-
-								gdRecord.canAimh=float(h1);
-								gdRecord.canAimp=float(p1);
-								gdRecord.canAimb=float(b1);
-
-
-								readBuf.Fgets(fp);
-								if(YSOK==readBuf.Arguments(args)==YSOK && 0<args.GetN())
+								if (gnd != NULL)
 								{
-									int j,n;
-									n=atoi(args[0]);
-									gdRecord.turret.Alloc(n);
-									for(j=0; j<n; j++)
-									{
-										gdRecord.turret[j].h=(float)atof(args[1+j*3]);
-										gdRecord.turret[j].p=(float)atof(args[2+j*3]);
-										gdRecord.turret[j].turretState=atoi(args[3+j*3]);
-									}
+									gnd->Record(t, gdRecord, YSTRUE);
 								}
-
-								gdRecord.steering=0;
-								gdRecord.leftDoor=0;
-								gdRecord.rightDoor=0;
-								gdRecord.rearDoor=0;
-								gdRecord.brake=0;
-								gdRecord.lightState=0;
-
-								gnd->Record(t,gdRecord,YSTRUE);
 							}
 						}
-						else if(version==1)
+						else if (version == 1)
 						{
 							YsString readBuf;
-							YsArray <YsString,16> args;
+							YsArray <YsString, 16> args;
 
-							for(i=0; i<nr; i++)
+							for (i = 0; i < nr; i++)
 							{
 								readBuf.Fgets(fp);
-								sscanf(readBuf,"%lf",&t);
+								sscanf(readBuf, "%lf", &t);
 								readBuf.Fgets(fp);
-								sscanf(readBuf,"%lf%lf%lf%lf%lf%lf",&x,&y,&z,&h,&p,&b);
+								sscanf(readBuf, "%lf%lf%lf%lf%lf%lf", &x, &y, &z, &h, &p, &b);
 								readBuf.Fgets(fp);
-								sscanf(readBuf,"%d%d",&state,&dmgTolerance);
-								gdRecord.pos.Set(x,y,z);
-								gdRecord.h=float(h);
-								gdRecord.p=float(p);
-								gdRecord.b=float(b);
-								gdRecord.state=(unsigned char)state;
-								gdRecord.dmgTolerance=(unsigned char)dmgTolerance;
+								sscanf(readBuf, "%d%d", &state, &curHealth);
+								gdRecord.pos.Set(x, y, z);
+								gdRecord.h = float(h);
+								gdRecord.p = float(p);
+								gdRecord.b = float(b);
+								gdRecord.state = (unsigned char)state;
+								gdRecord.curHealth = (unsigned char)curHealth;
 
-								float h1,p1,b1,h2,p2,b2,h3,p3,b3;
+								float h1, p1, b1, h2, p2, b2, h3, p3, b3;
 								readBuf.Fgets(fp);
-								sscanf(readBuf,"%f%f%f%f%f%f%f%f%f",&h1,&p1,&b1,&h2,&p2,&b2,&h3,&p3,&b3);
-								gdRecord.aaaAimh=float(h1);
-								gdRecord.aaaAimp=float(p1);
-								gdRecord.aaaAimb=float(b1);
+								sscanf(readBuf, "%f%f%f%f%f%f%f%f%f", &h1, &p1, &b1, &h2, &p2, &b2, &h3, &p3, &b3);
+								gdRecord.aaaAimh = float(h1);
+								gdRecord.aaaAimp = float(p1);
+								gdRecord.aaaAimb = float(b1);
 
-								gdRecord.samAimh=float(h1);
-								gdRecord.samAimp=float(p1);
-								gdRecord.samAimb=float(b1);
+								gdRecord.samAimh = float(h1);
+								gdRecord.samAimp = float(p1);
+								gdRecord.samAimb = float(b1);
 
-								gdRecord.canAimh=float(h1);
-								gdRecord.canAimp=float(p1);
-								gdRecord.canAimb=float(b1);
+								gdRecord.canAimh = float(h1);
+								gdRecord.canAimp = float(p1);
+								gdRecord.canAimb = float(b1);
 
-								gdRecord.steering=0;
-								gdRecord.leftDoor=0;
-								gdRecord.rightDoor=0;
-								gdRecord.rearDoor=0;
-								gdRecord.brake=0;
-								gdRecord.lightState=0;
+								gdRecord.steering = 0;
+								gdRecord.leftDoor = 0;
+								gdRecord.rightDoor = 0;
+								gdRecord.rearDoor = 0;
+								gdRecord.brake = 0;
+								gdRecord.lightState = 0;
 
-								gnd->Record(t,gdRecord,YSTRUE);
+								if (gnd != NULL)
+								{
+									gnd->Record(t, gdRecord, YSTRUE);
+								}
 							}
 						}
-						else if(version==0)
+						else if (version == 0)
 						{
 							YsString readBuf;
-							YsArray <YsString,16> args;
+							YsArray <YsString, 16> args;
 
-							for(i=0; i<nr; i++)
+							for (i = 0; i < nr; i++)
 							{
 								readBuf.Fgets(fp);
-								sscanf(readBuf,"%lf",&t);
+								sscanf(readBuf, "%lf", &t);
 								readBuf.Fgets(fp);
-								sscanf(readBuf,"%lf%lf%lf%lf%lf%lf",&x,&y,&z,&h,&p,&b);
+								sscanf(readBuf, "%lf%lf%lf%lf%lf%lf", &x, &y, &z, &h, &p, &b);
 								readBuf.Fgets(fp);
-								sscanf(readBuf,"%d%d",&state,&dmgTolerance);
-								gdRecord.pos.Set(x,y,z);
-								gdRecord.h=float(h);
-								gdRecord.p=float(p);
-								gdRecord.b=float(b);
-								gdRecord.state=(unsigned char)state;
-								gdRecord.dmgTolerance=(unsigned char)dmgTolerance;
+								sscanf(readBuf, "%d%d", &state, &curHealth);
+								gdRecord.pos.Set(x, y, z);
+								gdRecord.h = float(h);
+								gdRecord.p = float(p);
+								gdRecord.b = float(b);
+								gdRecord.state = (unsigned char)state;
+								gdRecord.curHealth = (unsigned char)curHealth;
 
 								readBuf.Fgets(fp);
-								sscanf(readBuf,"%lf%lf%lf",&h,&p,&b);
-								gdRecord.aaaAimh=float(h);
-								gdRecord.aaaAimp=float(p);
-								gdRecord.aaaAimb=float(b);
+								sscanf(readBuf, "%lf%lf%lf", &h, &p, &b);
+								gdRecord.aaaAimh = float(h);
+								gdRecord.aaaAimp = float(p);
+								gdRecord.aaaAimb = float(b);
 
-								gdRecord.samAimh=gdRecord.aaaAimh;
-								gdRecord.samAimp=gdRecord.aaaAimp;
-								gdRecord.samAimb=gdRecord.aaaAimb;
+								gdRecord.samAimh = gdRecord.aaaAimh;
+								gdRecord.samAimp = gdRecord.aaaAimp;
+								gdRecord.samAimb = gdRecord.aaaAimb;
 
-								gdRecord.canAimh=gdRecord.aaaAimh;
-								gdRecord.canAimp=gdRecord.aaaAimp;
-								gdRecord.canAimb=gdRecord.aaaAimb;
+								gdRecord.canAimh = gdRecord.aaaAimh;
+								gdRecord.canAimp = gdRecord.aaaAimp;
+								gdRecord.canAimb = gdRecord.aaaAimb;
 
-								gdRecord.steering=0;
-								gdRecord.leftDoor=0;
-								gdRecord.rightDoor=0;
-								gdRecord.rearDoor=0;
-								gdRecord.brake=0;
-								gdRecord.lightState=0;
+								gdRecord.steering = 0;
+								gdRecord.leftDoor = 0;
+								gdRecord.rightDoor = 0;
+								gdRecord.rearDoor = 0;
+								gdRecord.brake = 0;
+								gdRecord.lightState = 0;
 
-								gnd->Record(t,gdRecord,YSTRUE);
+								if (gnd != NULL)
+								{
+									gnd->Record(t, gdRecord, YSTRUE);
+								}
 							}
 						}
 						break;
@@ -1708,19 +1742,25 @@ YSRESULT FsWorld::LoadInternal(const wchar_t fn[],const YsVec3 &fieldPos,const Y
 						printf("GDINTENT is not implemented yet.\n");
 						break;
 					case 16: //"GNDPOSIT"
-						FsGetVec3(pos,args.GetN()-1,args.GetArray()+1);
-						pos=fieldMat*pos;
-						SettleGround(*gnd,pos);
-						break;
+						if (gnd != NULL)
+						{
+							FsGetVec3(pos, args.GetN() - 1, args.GetArray() + 1);
+							pos = fieldMat * pos;
+							SettleGround(*gnd, pos);
+							break;
+						}
 					case 17: //"GNDATTIT",  // Ground Attitude
-						FsGetAtt3(att,args.GetN()-1,args.GetArray()+1);
-						ev=att.GetForwardVector();
-						uv=att.GetUpVector();
-						fieldMat.Mul(ev,ev,0.0);
-						fieldMat.Mul(uv,uv,0.0);
-						att.SetTwoVector(ev,uv);
-						SettleGround(*gnd,att);
-						break;
+						if (gnd != NULL)
+						{
+							FsGetAtt3(att, args.GetN() - 1, args.GetArray() + 1);
+							ev = att.GetForwardVector();
+							uv = att.GetUpVector();
+							fieldMat.Mul(ev, ev, 0.0);
+							fieldMat.Mul(uv, uv, 0.0);
+							att.SetTwoVector(ev, uv);
+							SettleGround(*gnd, att);
+							break;
+						}
 					case 18: //	"ALLOWAAM",  // ALlow using AAM
 						sim->AllowAAM(YsStrToBool(args[1]));
 						break;
@@ -2157,15 +2197,71 @@ YSRESULT FsWorld::LoadAirplaneTemplate(
 		propFullPath.MakeFullPathName(rootDir,prop);
 
 		FILE *fp=YsFileIO::Fopen(propFullPath,"r");
+		//Check common .lst filepath case issues (user/User, dat/Dat/DAT) to stop Linux freaking out
+		if (fp == NULL) //Try user instead of User
+		{
+			YsWString propPathModified;
+			propPathModified.Append(propFullPath);
+
+			if (propFullPath[2] == L'U')
+			{
+				propPathModified.Set(2, L'u');
+			}
+
+			fp = YsFileIO::Fopen(propPathModified, "r");
+		}
+
+		if (fp == NULL)  //Try dat
+		{
+			YsWString propPathModified;
+			propPathModified.Append(propFullPath);
+			propPathModified.resize(propPathModified.size() - 3);
+
+			propPathModified.Append(L'd');
+			propPathModified.Append(L'a');
+			propPathModified.Append(L't');
+
+			fp = YsFileIO::Fopen(propPathModified, "r");
+		}
+
+		if (fp == NULL)  //Try Dat
+		{
+			YsWString propPathModified;
+			propPathModified.Append(propFullPath);
+			propPathModified.resize(propPathModified.size() - 3);
+
+			propPathModified.Append(L'D');
+			propPathModified.Append(L'a');
+			propPathModified.Append(L't');
+
+			fp = YsFileIO::Fopen(propPathModified, "r");
+		}
+
+		if (fp == NULL)  //Try DAT
+		{
+			YsWString propPathModified;
+			propPathModified.Append(propFullPath);
+			propPathModified.resize(propPathModified.size() - 3);
+
+			propPathModified.Append(L'D');
+			propPathModified.Append(L'A');
+			propPathModified.Append(L'T');
+
+			fp = YsFileIO::Fopen(propPathModified, "r");
+		}
+
 		if(fp!=NULL)
 		{
 			YsString str;
 			int ac;
 			char *av[16];
 			char buf[256];
+			char strCaps[256];
 			while(str.Fgets(fp)!=NULL)
 			{
-				if(strncmp(str,"IDENTIFY",8)==0)
+				strncpy(strCaps, str, 255);
+				YsCapitalize(strCaps);    //Stop throwing errors if Identify case isn't capitals
+				if(strncmp(strCaps,"IDENTIFY",8)==0)
 				{
 					strncpy(buf,str,255);
 					buf[255]=0;
@@ -2186,7 +2282,7 @@ YSRESULT FsWorld::LoadAirplaneTemplate(
 						}
 					}
 				}
-				else if(strncmp(str,"CATEGORY",8)==0)
+				else if(strncmp(strCaps,"CATEGORY",8)==0)
 				{
 					strncpy(buf,str,255);
 					buf[255]=0;
@@ -2483,13 +2579,15 @@ YSRESULT FsWorld::LoadAirplaneTemplateList(const wchar_t rootDir[],const wchar_t
 	res=YSOK;
 
 	FsFindFileList(filelist,dir,prefix,ext);
+	int numFiles = filelist.GetN();
 	for(i=0; i<filelist.GetN(); i++)
 	{
 		ful.MakeFullPathName(dir,filelist[i]);
 
 		YsString cStr;
 		cStr.EncodeUTF8 <wchar_t> (ful);
-		fsConsole.Printf("%s",cStr.Txt());
+		fsConsole.Printf("%i/%i %s",i+1,numFiles, cStr.Txt());
+		fsConsole.Show();
 
 		FILE *fp=YsFileIO::Fopen(ful,"r");
 		if(fp!=NULL)
@@ -2587,7 +2685,7 @@ YSRESULT FsWorld::LoadGroundTemplate(
 			YsString utf8;
 			utf8.EncodeUTF8 <wchar_t> (prop);
 			fsStderr.Printf("Load Error :%s\n",utf8.Txt());
-			delete neo;
+			neo = NULL;
 			return YSERR;
 		}
 
@@ -2790,13 +2888,15 @@ YSRESULT FsWorld::LoadGroundTemplateList(const wchar_t rootDir[],const wchar_t s
 	dir.MakeFullPathName(rootDir,subDir);
 
 	FsFindFileList(filelist,dir,prefix,ext);
+	int numFiles = filelist.GetN();
 	for(i=0; i<filelist.GetN(); i++)
 	{
 		ful.MakeFullPathName(dir,filelist[i]);
 
 		YsString cStr;
 		cStr.EncodeUTF8 <wchar_t> (ful);
-		fsConsole.Printf("%s",cStr.Txt());
+		fsConsole.Printf("%i/%i %s",i+1, numFiles,cStr.Txt());
+		fsConsole.Show();
 
 		FILE *fp=YsFileIO::Fopen(ful,"r");
 		if(fp!=NULL)
@@ -2873,13 +2973,15 @@ YSRESULT FsWorld::LoadFieldTemplateList(const wchar_t rootDir[],const wchar_t su
 	dir.MakeFullPathName(rootDir,subDir);
 
 	FsFindFileList(filelist,dir,prefix,ext);
+	int numFiles = filelist.GetN();
 	for(i=0; i<filelist.GetN(); i++)
 	{
 		ful.MakeFullPathName(dir,filelist[i]);
 
 		YsString cStr;
 		cStr.EncodeUTF8 <wchar_t> (ful);
-		fsConsole.Printf("%s",(const char *)cStr.Txt());
+		fsConsole.Printf("%i/%i %s",i+1, numFiles,(const char *)cStr.Txt());
+		fsConsole.Show();
 
 		FILE *fp=YsFileIO::Fopen(ful,"r");
 
@@ -3853,18 +3955,18 @@ YSRESULT FsWorld::DisableGroundFire(void)
 	printf("FsWorld::DisableGroundFire()\n");
 	if(NULL!=sim)
 	{
-		FsGround *gnd;
-		gnd=NULL;
-		while((gnd=sim->FindNextGround(gnd))!=NULL)
-		{
-			if(YSTRUE==gnd->Prop().HasWeapon())
-			{
-				gnd->SendCommand("INITIGUN 0");
-				gnd->SendCommand("INITISAM 0");
-				gnd->SendCommand("MAXSPEED 0kt");
-				gnd->SendCommand("MAXROTAT 0deg");
-			}
-		}
+		GroundFireDisabled = YSTRUE;
+		return YSOK;
+	}
+	return YSERR;
+}
+
+YSRESULT FsWorld::EnableGroundFire(void)
+{
+	printf("FsWorld::EnableGroundFire()\n");
+	if (NULL != sim)
+	{
+		GroundFireDisabled = YSFALSE;
 		return YSOK;
 	}
 	return YSERR;
@@ -3975,73 +4077,74 @@ FsAirplane *FsWorld::AddMatchingAirplane(
 		matchDiff=0.0;
 
 		ptr=NULL;
-		while(NULL!=(ptr=airplaneTemplate.FindNext(ptr)))
-		{
-			if(ptr->dat.GetProperty()->GetAircraftClass()==airClass &&
-			   ptr->dat.GetProperty()->GetAirplaneCategory()==airCategory &&
-			   ptr->dat.GetProperty()->IsJet()==isJet)
-			{
-				diff=fabs(ptr->dat.GetProperty()->GetOutsideRadius()-dimension);
-				if(match==NULL || diff<matchDiff)
-				{
-					match=ptr;
-					matchDiff=diff;
-				}
-			}
-		}
+		//This autosubstitution search triggers all .dat file errors
+		//Disabled for now 20250504
+		// while(NULL!=(ptr=airplaneTemplate.FindNext(ptr)))
+		// {
+		// 	if(ptr->dat.GetProperty()->GetAircraftClass()==airClass &&
+		// 	   ptr->dat.GetProperty()->GetAirplaneCategory()==airCategory &&
+		// 	   ptr->dat.GetProperty()->IsJet()==isJet)
+		// 	{
+		// 		diff=fabs(ptr->dat.GetProperty()->GetOutsideRadius()-dimension);
+		// 		if(match==NULL || diff<matchDiff)
+		// 		{
+		// 			match=ptr;
+		// 			matchDiff=diff;
+		// 		}
+		// 	}
+		// }
+		
+		// if(match==NULL)  // No template with same class+category
+		// {
+		// 	ptr=NULL;
+		// 	while(NULL!=(ptr=airplaneTemplate.FindNext(ptr)))
+		// 	{
+		// 		if(ptr->dat.GetProperty()->GetAircraftClass()==airClass &&
+		// 		   ptr->dat.GetProperty()->IsJet()==isJet)
+		// 		{
+		// 			diff=fabs(ptr->dat.GetProperty()->GetOutsideRadius()-dimension);
+		// 			if(match==NULL || diff<matchDiff)
+		// 			{
+		// 				match=ptr;
+		// 				matchDiff=diff;
+		// 			}
+		// 		}
+		// 	}
+		// }
 
-		if(match==NULL)  // No template with same class+category
-		{
-			ptr=NULL;
-			while(NULL!=(ptr=airplaneTemplate.FindNext(ptr)))
-			{
-				if(ptr->dat.GetProperty()->GetAircraftClass()==airClass &&
-				   ptr->dat.GetProperty()->IsJet()==isJet)
-				{
-					diff=fabs(ptr->dat.GetProperty()->GetOutsideRadius()-dimension);
-					if(match==NULL || diff<matchDiff)
-					{
-						match=ptr;
-						matchDiff=diff;
-					}
-				}
-			}
-		}
+		// if(match==NULL)  // No template with same class+category+Jet/Prop
+		// {
+		// 	ptr=NULL;
+		// 	while(NULL!=(ptr=airplaneTemplate.FindNext(ptr)))
+		// 	{
+		// 		if(ptr->dat.GetProperty()->GetAircraftClass()==airClass)
+		// 		{
+		// 			diff=fabs(ptr->dat.GetProperty()->GetOutsideRadius()-dimension);
+		// 			if(match==NULL || diff<matchDiff)
+		// 			{
+		// 				match=ptr;
+		// 				matchDiff=diff;
+		// 			}
+		// 		}
+		// 	}
+		// }
 
-		if(match==NULL)  // No template with same class+category+Jet/Prop
-		{
-			ptr=NULL;
-			while(NULL!=(ptr=airplaneTemplate.FindNext(ptr)))
-			{
-				if(ptr->dat.GetProperty()->GetAircraftClass()==airClass)
-				{
-					diff=fabs(ptr->dat.GetProperty()->GetOutsideRadius()-dimension);
-					if(match==NULL || diff<matchDiff)
-					{
-						match=ptr;
-						matchDiff=diff;
-					}
-				}
-			}
-		}
-
-		if(match==NULL) // OK.  Take whatever the similar size.
-		{
-			ptr=NULL;
-			while(NULL!=(ptr=airplaneTemplate.FindNext(ptr)))
-			{
-				diff=fabs(ptr->dat.GetProperty()->GetOutsideRadius()-dimension);
-				if(match==NULL || diff<matchDiff)
-				{
-					match=ptr;
-					matchDiff=diff;
-				}
-			}
-		}
+		// if(match==NULL) // OK.  Take whatever the similar size.
+		// {
+		// 	ptr=NULL;
+		// 	while(NULL!=(ptr=airplaneTemplate.FindNext(ptr)))
+		// 	{
+		// 		diff=fabs(ptr->dat.GetProperty()->GetOutsideRadius()-dimension);
+		// 		if(match==NULL || diff<matchDiff)
+		// 		{
+		// 			match=ptr;
+		// 			matchDiff=diff;
+		// 		}
+		// 	}
+		// }
 
 
-
-		if(match!=NULL)
+		if(match==NULL)
 		{
 			FsAirplane neo,*air;
 
@@ -4084,16 +4187,18 @@ FsAirplane *FsWorld::AddMatchingAirplane(
 
 			neo.SetCollisionShell(*collPtr);
 
-			neo.SetProperty(*match->dat.GetProperty(),match->dat.GetTemplateRootDirectory());
+			//neo.SetProperty(*match->dat.GetProperty(),match->dat.GetTemplateRootDirectory());
 
-			neo.vis=NULL; // match->dat.GetVisual();
-			neo.lod=NULL; // match->dat.GetLod();
-
+			neo.vis=NULL;
+			neo.lod=NULL;
 			neo.cockpit=NULL;
+			//neo.vis = match->dat.GetVisual(); //Enable these when enabling autosubstitution above
+			//neo.lod = match->dat.GetLod();
+			//neo.cockpit = match->dat.GetCockpit();
 
 			neo.isNetSubstitute=YSTRUE;
 
-			air=sim->AddAirplane(neo,isPlayerPlane,match->dat.GetTemplateRootDirectory(),netSearchKey);
+			air=sim->AddAirplane(neo,isPlayerPlane,NULL,netSearchKey);
 
 			return air;
 		}
@@ -4247,11 +4352,13 @@ void FsWorld::ReviveGround(FsGround *gnd)
 			pos=gnd->GetPosition();
 			att=gnd->GetAttitude();
 
-			gnd->Prop().CopyState(ptr->dat.prop);
-			gnd->netAlive=YSTRUE;
+			FsGroundProperty temp;
+			temp.CopyState(ptr->dat.prop);
+			temp.SetPosition(pos);
+			temp.SetAttitude(att);
 
-			gnd->Prop().SetPosition(pos);
-			gnd->Prop().SetAttitude(att);
+			gnd->Prop().CopyState(temp);
+			gnd->netAlive=YSTRUE;
 		}
 	}
 }
@@ -4379,12 +4486,12 @@ FsField *FsWorld::AddField(
 				// 	  ("One or more field is added in the"
 				// 	   "static object definition file.\n");
 				// }
-				if(nAirCheck1!=nAirCheck2)
-				{
-					fsStderr.Printf
-					  ("One or more airplane is added in the"
-					   "static object definition file.\n");
-				}
+				// if(nAirCheck1!=nAirCheck2)
+				// {
+				//	fsStderr.Printf
+				//	  ("One or more airplane is added in the"
+				//	   "static object definition file.\n");
+				// }
 				// << This section is left for the compatibility
 			}
 			else
@@ -4440,7 +4547,7 @@ FsField *FsWorld::AddField(
 						air->airFlag=airList[i]->GetFlag();
 						air->landWhenLowFuelThr=airList[i]->GetLandWhenLowFuel();
 
-						sprintf(cmd,"POSITION %.2lfm %.2lfm %.2lfm\n",p.x(),p.y(),p.z());
+						sprintf(cmd,"POSITION %.2lfm %.2lfm %.2lfm",p.x(),p.y(),p.z());
 						air->SendCommand(cmd);
 						sprintf(cmd,"ATTITUDE %.2lfdeg %.2lfdeg %.2lfdeg",
 						    YsRadToDeg(att.h()),YsRadToDeg(att.p()),YsRadToDeg(att.b()));
@@ -4666,6 +4773,16 @@ YSRESULT FsWorld::RunReplayOneStep(FsSimulation::FSSIMULATIONSTATE &state,FsSimu
 		return YSOK;
 	}
 	return YSERR;
+}
+
+YSRESULT FsWorld::SetReplayResumed(YSBOOL resume)
+{
+	replayResumed = resume;
+	return YSOK;
+}
+YSBOOL FsWorld::IsReplayResumed(void)
+{
+	return replayResumed;
 }
 
 YSRESULT FsWorld::PrepareRunDemoMode(FsDemoModeInfo &info,const char sysMsg[],const double &maxTime)
@@ -7909,6 +8026,18 @@ YSBOOL FsWorld::IsFlightRecord(void)
 		return sim->AtLeastOneAirplaneIsRecordedAirplane();
 	}
 }
+
+YSRESULT FsWorld::SetIsNetClient(YSBOOL client)
+{
+	isNetClient = client;
+	return YSOK;
+}
+
+YSBOOL FsWorld::GetIsNetClient(void)
+{
+	return isNetClient;
+}
+
 
 FsAirplane *FsWorld::GetPlayerAirplane(void) const
 {

@@ -294,7 +294,7 @@ void FsExistence::Initialize(void)
 	netAirTarget=NULL;
 	netGndTarget=NULL;
 	netAlive=YSTRUE;
-	netDamageTolerance=0;
+	netCurrentHealth=0;
 
 	prevPos=YsOrigin();
 	prevDt=0.1;
@@ -677,7 +677,7 @@ void FsAdjustPrecisionOfFlightRecord(FsRecord <T> *rec,const double &precPos,con
 FsAirplane::FsAirplane()
 {
 	instPanel=NULL;
-	defDamageTolerance=1;
+	defaultHealth=1;
 	Initialize();
 }
 
@@ -787,14 +787,14 @@ void FsAirplane::CleanUp(void)
 	FsExistence::CleanUp();
 }
 
-void FsAirplane::MakeVaporVertexArray(class YsGLVertexBuffer &vtxBuf,class YsGLColorBuffer &colBuf,double currentTime,double remainTime,int step) const
+void FsAirplane::MakeVaporVertexArray(class YsGLVertexBuffer &vtxBuf,class YsGLColorBuffer &colBuf,double currentTime,double remainTime,int step, double colorScale) const
 {
 	vtxBuf.CleanUp();
 	colBuf.CleanUp();
 
 	if(nullptr!=rec)
 	{
-		YSSIZE_T idx;
+		YSSIZE_T idx{};
 		double t,t0,t1;
 
 		// Catch the index
@@ -903,14 +903,15 @@ void FsAirplane::MakeVaporVertexArray(class YsGLVertexBuffer &vtxBuf,class YsGLC
 					alpha=(float)YsSqr((t-t0)/(t1-t0));
 
 					// Transparency: alpha=1.0 at t=t1, alpha=0.0 at t=t0
-					colBuf.Add<float>(1.0f,1.0f,1.0f,alpha);
+					double col = 1.0 * colorScale;
+					colBuf.Add<float>(col, col, col,alpha);
 					vtxBuf.Add(vap00);
-					colBuf.Add<float>(1.0f,1.0f,1.0f,prevAlpha);
+					colBuf.Add<float>(col, col, col,prevAlpha);
 					vtxBuf.Add(vap10);
 
-					colBuf.Add<float>(1.0f,1.0f,1.0f,alpha);
+					colBuf.Add<float>(col, col, col,alpha);
 					vtxBuf.Add(vap01);
-					colBuf.Add<float>(1.0f,1.0f,1.0f,prevAlpha);
+					colBuf.Add<float>(col, col, col,prevAlpha);
 					vtxBuf.Add(vap11);
 
 					drewPrevious=YSTRUE;
@@ -1375,15 +1376,15 @@ void FsAirplane::DrawShadow
 	}
 }
 
-void FsAirplane::AddSmokeToParticleManager(class YsGLParticleManager &partMan,double currentTime,double remainTime) const
+void FsAirplane::AddSmokeToParticleManager(class YsGLParticleManager &partMan,double currentTime,double remainTime, class FsSimulation *sim) const
 {
 	for(int i=0; i<Prop().GetNumSmokeGenerator(); i++)
 	{
-		AddSingleSmokeToParticleManager(partMan,i,currentTime,remainTime);
+		AddSingleSmokeToParticleManager(partMan,i,currentTime,remainTime, sim);
 	}
 }
 
-void FsAirplane::AddSingleSmokeToParticleManager(class YsGLParticleManager &partMan,int smkId,double currentTime,double remainTime) const
+void FsAirplane::AddSingleSmokeToParticleManager(class YsGLParticleManager &partMan,int smkId,double currentTime,double remainTime, class FsSimulation *sim) const
 {
 	if(rec!=NULL)
 	{
@@ -1508,6 +1509,13 @@ void FsAirplane::AddSingleSmokeToParticleManager(class YsGLParticleManager &part
 						double passed=currentTime-t;
 						double alpha=YsBound(0.8*YsSqr(1.0-passed/remainTime),0.0,1.0);
 						col.SetAd(alpha*0.5);
+
+						if (sim->GetEnvironment() == FSNIGHT)
+						{
+							col.SetRd(col.Rd() * 0.1);
+							col.SetGd(col.Gd() * 0.1);
+							col.SetBd(col.Bd() * 0.1);
+						}
 
 						float s=(float)((i+idx)&7)*0.125;
 						partMan.Add(smkp,col,r*2.5,s,0);
@@ -2037,9 +2045,9 @@ FsAirplaneProperty &FsAirplane::Prop(void)
 	return prop;
 }
 
-int FsAirplane::GetDefaultDamageTolerance(void) const
+int FsAirplane::GetDefaultHealth(void) const
 {
-	return YsGreater(1,defDamageTolerance);
+	return YsGreater(1,defaultHealth);
 }
 
 FsVehicleProperty &FsAirplane::CommonProp(void)
@@ -2056,7 +2064,7 @@ YSRESULT FsAirplane::SetProperty(const FsAirplaneProperty &prp,const wchar_t tmp
 {
 	prop=prp;
 	prop.belongTo=this;
-	defDamageTolerance=prop.GetDamageTolerance();
+	defaultHealth=prop.GetCurrentHealth();
 
 	if(YSTRUE==prop.HasInstPanel())
 	{
@@ -2184,12 +2192,22 @@ YSBOOL FsAirplane::HitGround(
     FsExplosionHolder * /*explosion*/)
 {
 	collType=0;
+
 	if(prop.IsAlive()==YSTRUE)
 	{
 		const YsVec3 *pos;
 		YSBOOL isOnRunway;
 
 		pos=&prop.GetPosition();
+		double elv;
+		field.GetFieldElevation(elv, pos->x(), pos->z());
+		
+		if (prop.IsActive() == YSTRUE &&
+			pos->y() >= elv + YsTolerance + prop.GetOutsideRadius())    //Fix edge case where falling off carrier would kill player instead of dropping them
+		{																//Without HTRADIUS, landed aircraft will constantly HitGround but never enter landed state
+			prop.SetState(FSFLYING, FSDIEDOF_NULL);						//To do it properly, need to check the world position of the gears
+		}
+
 		isOnRunway=YSFALSE;
 
 		if(YSTRUE==field.GetFieldShellCollision(UntransformedCollisionShell().Conv(),GetMatrix()))
@@ -2267,6 +2285,7 @@ YSBOOL FsAirplane::HitGround(
 
 						YSSCNAREATYPE areaType;
 						areaType=field.GetAreaType(GetPosition());
+						printf("Touchdown\n");
 
 						if(areaType!=YSSCNAREA_LAND)
 						{

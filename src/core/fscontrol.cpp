@@ -1286,10 +1286,10 @@ static struct FsButtonFunctionString fsButtonFuncStr[]=
 	{FSBTF_OUTSIDEPLAYERVIEW,    "OUTSIDEPLAYERVIEW",    "Outside Player View"},
 	{FSBTF_COMPUTERAIRPLANEVIEW, "COMPUTERAIRPLANEVIEW", "Computer Airplane View"},
 	{FSBTF_WEAPONVIEW,           "WEAPONVIEW",           "Weapon View"},
-	{FSBTF_ILSVIEW,              "ILSVIEW",              "ILS/Control-Tower View"},
-	{FSBTF_OUTSIDEPLAYERVIEW2,   "OUTSIDEPLAYERVIEW2",   "Outside-Aircraft View"},
-	{FSBTF_OUTSIDEPLAYERVIEW3,   "OUTSIDEPLAYERVIEW3",   "Outside-Aircraft View"},
-	{FSBTF_CONTROLTOWERVIEW,     "CONTROLTOWERVIEW",     "ILS/Control-Tower View"},
+	{FSBTF_ILSVIEW,              "ILSVIEW",              "ILS"},
+	{FSBTF_OUTSIDEPLAYERVIEW2,   "OUTSIDEPLAYERVIEW2",   "Outside-Aircraft View Static"},
+	{FSBTF_OUTSIDEPLAYERVIEW3,   "OUTSIDEPLAYERVIEW3",   "Outside-Aircraft View Follow"},
+	{FSBTF_CONTROLTOWERVIEW,     "CONTROLTOWERVIEW",     "Control-Tower View"},
 	{FSBTF_CHANGEAIRPLANE,       "CHANGEAIRPLANE",       "Change Airplane in Replay Record Mode"},
 	{FSBTF_GHOSTVIEW,            "GHOSTVIEW",            "Ghost View"},
 
@@ -1743,6 +1743,7 @@ void FsControlAssignment::SetDefaultKeyAssign(void)
 	AddKeyAssignment(FSKEY_F5,      FSBTF_CHANGEAIRPLANE);
 	AddKeyAssignment(FSKEY_F6,      FSBTF_ILSVIEW);
 	AddKeyAssignment(FSKEY_F7,      FSBTF_OUTSIDEPLAYERVIEW2);
+	AddKeyAssignment(FSKEY_F8,      FSBTF_OUTSIDEPLAYERVIEW3);
 	AddKeyAssignment(FSKEY_F9,      FSBTF_CONTROLTOWERVIEW); 
 	AddKeyAssignment(FSKEY_F11,     FSBTF_SWITCHVIEWTARGET); 
 	AddKeyAssignment(FSKEY_U,       FSBTF_LOOKFORWARD);
@@ -2601,6 +2602,7 @@ void FsCenterJoystick::RunOneStep(void)
 		}
 
 		ctl->ReadControl(*ctlAssign,pJoy,joy);
+		Sleep(1); //Without this forced sleep, joystick preview renders as fast as it can and burns CPU needlessly
 	}
 	else if(WAITING_FOR_RELEASE==state)
 	{
