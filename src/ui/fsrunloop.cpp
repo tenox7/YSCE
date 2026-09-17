@@ -2389,22 +2389,16 @@ YSBOOL FsRunLoop::RunMenuOneStep(void)
 		{
 			if(lastChangePicture==0 || YsAbs(time(NULL)-lastChangePicture)>8)
 			{
-				int retry;
 				titleBmpPtr=NULL;
-				for(retry=0; retry<5; retry++)
+				if(nTitleBmp>0)
 				{
-					if(nTitleBmp>0)
+					int n=rand()%nTitleBmp;
+					char fn[256];
+					sprintf(fn,"misc/title%02d.png",n);
+					if(titleBmp.LoadPng(fn)==YSOK && titleBmp.GetWidth()>0 && titleBmp.GetHeight()>0)
 					{
-						int n;
-						char fn[256];
-						n=rand()%nTitleBmp;
-						sprintf(fn,"misc/title%02d.png",n);
-						if(titleBmp.LoadPng(fn)==YSOK && titleBmp.GetWidth()>0 && titleBmp.GetHeight()>0)
-						{
-							titleBmpPtr=&titleBmp;
-							SetNeedRedraw(YSTRUE);
-							break;
-						}
+						titleBmpPtr=&titleBmp;
+						SetNeedRedraw(YSTRUE);
 					}
 				}
 				lastChangePicture=time(NULL);
@@ -2485,7 +2479,7 @@ YSBOOL FsRunLoop::RunMenuOneStep(void)
 			mainCanvas->CharIn(c);
 		}
 
-		FsSleep(25);
+		FsSleep(1);
 	}
 #ifdef CRASHINVESTIGATION
 	printf("%s %d\n",__FUNCTION__,__LINE__);
